@@ -119,7 +119,7 @@ public static class TurnPolicy
         return new TurnDecision(choice.Tile, riichi, riichi ? $"{reason} + riichi" : reason) { Kind = kind };
     }
 
-    internal static bool IsFuriten(in DiscardOption option, IReadOnlyList<int> ownRiver)
+    public static bool IsFuriten(in DiscardOption option, IReadOnlyList<int> ownRiver)
     {
         foreach (AcceptTile accept in option.Accepts)
             if (ownRiver.Contains(accept.Tile))
