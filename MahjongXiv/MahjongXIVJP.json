@@ -1,11 +1,11 @@
 {
-    "Author": "kuchris",
-    "Name": "MahjongXIV",
-    "Punchline": "Doman Mahjong, solved for you.",
+    "Author": "MMMMXIV (based on MahjongXIV by kuchris)",
+    "Name": "MahjongXIV JP",
+    "Punchline": "ドマ式麻雀の打牌推奨・自動打牌（日本語対応）",
     "Description": "Reads Doman Mahjong, computes the best discard and call, shows a suggestion overlay, and can play for you. English and Japanese UI.\n\nドマ式麻雀の卓を読み取り、最善の打牌と鳴きを計算して推奨表示します。自動打牌にも対応。日本語UI対応。",
     "ApplicableVersion": "any",
-    "RepoUrl": "https://github.com/MMMMXIV/DalamudPlugins/tree/main/plugins/MahjongXIV",
-    "IconUrl": "https://raw.githubusercontent.com/MMMMXIV/DalamudPlugins/main/plugins/MahjongXIV/icon.png",
+    "RepoUrl": "https://github.com/MMMMXIV/MahjongXIVJP",
+    "IconUrl": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/MahjongXiv/Images/Icon.png",
     "Tags": [
         "mahjong",
         "doman mahjong",

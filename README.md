@@ -1,89 +1,92 @@
-# MahjongXIV
+# MahjongXIV JP
 
-[日本語版 README はこちら](README.ja.md)
+[English README](README.en.md)
 
-A [Dalamud](https://github.com/goatcorp/Dalamud) plugin for FFXIV's Doman Mahjong. It reads the
-table, works out the best discard and call, and can either point at the move for you or play the
-hand itself.
+FFXIV のドマ式麻雀用 [Dalamud](https://github.com/goatcorp/Dalamud) プラグインです。
+kuchris 氏の [MahjongXIV](https://github.com/kuchris/MahjongXIV) をもとに、日本語対応と推奨表示の改良を
+加えた独立版です。内部名（`MahjongXIVJP`）とコマンド（`/mjjp`）が異なるため、元の MahjongXIV と
+同時にインストールしても競合しません（ただし両方で同時に自動打牌しないでください）。卓を読み取り、
+最善の打牌と鳴きを計算して、推奨を表示するか、代わりに打牌します。
 
-- **Suggest mode**: shows the best discard, the tiles it accepts, the alternatives, your shanten and
-  your waits. It uses the same table-aware policy as auto-play (visible tiles, dora, folding against
-  a riichi, furiten avoidance, when to riichi). It can also draw a marker over the recommended tile on
-  the board. It never sends an input.
-- **Auto-play mode**: discards, declares riichi, tsumo and ron, takes or passes calls, answers the
-  nine-terminals redeal prompt, and advances result screens. It waits a random, configurable time
-  before each action.
+- **推奨表示モード**: 最善の打牌、その有効牌、次点の候補、向聴数、待ちを表示します。判断は自動打牌と
+  同じロジック（場に見えている牌・ドラ・他家リーチ時のベタオリ・フリテン回避・リーチ判断）を使います。
+  卓上の推奨牌にマーカーを重ねて表示することもできます。ゲームへの入力は一切送りません。
+- **自動打牌モード**: 打牌、リーチ・ツモ・ロンの宣言、鳴きの選択（ポン／見送り）、九種九牌の流局
+  選択、結果画面の送りを行います。各操作の前に、設定した範囲でランダムに待ちます。
 
-Doman Mahjong is standard four-player Japanese riichi with one FFXIV twist: points come from a flat
-han table with **no fu**. The engine is written for that ruleset.
+ドマ式麻雀は標準的な四人打ちリーチ麻雀ですが、**符がなく**翻数だけで点数が決まる独自ルールです。
+エンジンはこのルールに合わせて作られています。
 
-## Install
+## インストール
 
-1. In game, open `/xlsettings` → **Experimental**.
-2. Under **Custom Plugin Repositories**, add this URL, tick **Enabled** and save:
+1. ゲーム内で `/xlsettings` → **試験的機能（Experimental）** を開きます。
+2. **カスタムプラグインリポジトリ** に次の URL を追加し、**有効** にチェックして保存します。
 
    ```
-   https://raw.githubusercontent.com/kuchris/DalamudPlugins/main/repo.json
+   https://raw.githubusercontent.com/MMMMXIV/DalamudPlugins/main/repo.json
    ```
 
-3. Open `/xlplugins`, search for **MahjongXIV** and install it.
+3. `/xlplugins` で **MahjongXIV JP** を検索してインストールします。
 
-## Usage
+## 使い方
 
-Open the window with `/mj` (or `/mahjongxiv`), pick **Suggest** or **Auto-play**, and press
-**Start**. Then join a Doman Mahjong table and the plugin takes over from there.
+`/mjjp`（または `/mahjongjp`）でウィンドウを開き、**推奨表示** か **自動打牌** を選んで **開始** を
+押します。あとはドマ式麻雀の卓に着くだけです。
 
-| Command | Effect |
+| コマンド | 内容 |
 |---|---|
-| `/mj` | Toggle the main window |
-| `/mj suggest [on\|off]` | Start or stop Suggest mode (toggles with no argument) |
-| `/mj auto [on\|off]` | Start or stop Auto-play (toggles with no argument) |
+| `/mjjp` | ウィンドウの表示切替 |
+| `/mjjp suggest [on\|off]` | 推奨表示モードの開始／停止（引数なしで切替） |
+| `/mjjp auto [on\|off]` | 自動打牌の開始／停止（引数なしで切替） |
 
-Diagnostic subcommands (`dump`, `tree`, `board`, `state`, `melds`, `values`, `options`, `capture`,
-`probe`, `diag`, `events`, `buttons`, `click-discard`, `discard`, `advance`) write to the Dalamud
-log (`/xllog`). They exist for reverse-engineering the table UI, and most players won't need them.
+診断用サブコマンド（`dump`、`tree`、`board`、`state`、`melds`、`values`、`options`、`capture`、
+`probe`、`diag`、`events`、`buttons`、`click-discard`、`discard`、`advance`）は Dalamud ログ
+（`/xllog`）に出力します。バグ報告に貼り付けやすいよう、ログは英語のままです。
 
-### Settings
+### 表示言語
 
-You'll find these under **Settings** in the main window:
+ウィンドウの **設定 → 表示言語** で「自動／English／日本語」を選べます。「自動」は Dalamud の UI
+言語に従います。日本語表示では牌を「5萬・3筒・7索・東・白・發・中」の形で表示します。
 
-| Setting | Default | Notes |
+### 設定
+
+| 設定 | 初期値 | 説明 |
 |---|---|---|
-| Language | Auto | English or Japanese UI. Auto follows Dalamud's UI language |
-| Auto-play on ranked tables | Off | Lets auto-play act at ranked tables (see below) |
-| Highlight the suggested tile | On | Suggest mode only. **Style**: Brackets, Arrow or Glow. **Colour**: one of seven palettes |
-| Auto-play delays | Discard 0.7–1.8 s, Call 0.5–1.2 s, Results 1.5–2.8 s | Each action waits a random time in its range. **Reset delays** restores these |
+| 表示言語 | 自動 | プラグインの UI 言語 |
+| ランクマッチでも自動打牌する | オフ | ランクマッチの卓で自動打牌を許可します（下記参照） |
+| 推奨牌をハイライト表示 | オン | 推奨表示モードのみ。**表示形式**: 枠・矢印・発光、**色**: 7 種類 |
+| 自動打牌の待ち時間 | 打牌 0.7〜1.8 秒、鳴き 0.5〜1.2 秒、結果画面 1.5〜2.8 秒 | 各操作は範囲内のランダムな時間だけ待ちます。**待ち時間を初期値に戻す** で復元できます |
 
-### Tables and safety
+### 卓と安全性
 
-Auto-play only acts at tables it recognizes. It checks the Duty Finder entry:
+自動打牌は、コンテンツファインダーの登録内容から認識できた卓でのみ動作します。
 
-- **Casual** tables (full or quick match, with kuitan on or off): allowed.
-- **Ranked** tables: refused unless you turn on *Auto-play on ranked tables*. Even then, the plugin
-  leaves result screens to the game's own timer, because advancing them early has crashed the
-  client.
-- **Anything else**: always refused.
+- **カジュアル卓**（フルマッチ／クイックマッチ、喰いタンあり／なし）: 動作します。
+- **ランクマッチ**: *ランクマッチでも自動打牌する* をオンにしない限り動作しません。オンにした場合も、
+  結果画面を早送りするとクライアントがクラッシュした例があるため、結果画面はゲーム側のタイマーに任せます。
+- **それ以外**: 常に動作しません。
 
-Suggest mode works at every table.
+推奨表示モードはすべての卓で使えます。
 
 > [!WARNING]
-> Automating a minigame where you play against real people is against the FFXIV terms of service
-> and may put your account at risk. Use auto-play at your own risk, especially at ranked tables.
+> 他のプレイヤーと対戦するミニゲームを自動化することは FFXIV の利用規約に違反し、アカウントに
+> リスクが生じる可能性があります。自動打牌、特にランクマッチでの使用は自己責任でお願いします。
 
-### Known limitations
+### 既知の制限
 
-- Use the default tile design and an English or Japanese client. With other tile designs the hand
-  can't be read. The Japanese game strings (seat winds, riichi badge, call buttons) are the standard
-  terms but newer than the English ones; if a Japanese table misreads, please report the output of
-  `/mj state` and `/mj options`. German and French clients may misread seat wind and riichi state.
-- Auto-play never calls chi or kan. It only takes a pon when the hand already has a yaku, the
-  tile is yakuhai, or it is a dora/tanyao hand.
+- 牌のデザインは標準のものを使ってください。他のデザインでは手牌を読み取れません。
+- 日本語クライアントのゲーム内文字列（自風・リーチ表示・鳴きボタン）は標準的な表記で対応していますが、
+  英語版ほど実機検証が進んでいません。誤認識がある場合は `/mjjp state` と `/mjjp options` の出力を
+  添えて報告してください。見送りボタンの表記が想定外でも、他のボタンがすべて認識できていれば残りの
+  1 つを見送りとして扱います。
+- 場風はまだ読み取れないため東場として扱います（クイックマッチでは正確です）。
+- 自動打牌はチーとカンを行いません。ポンは、すでに役がある・役牌・ドラやタンヤオの手の場合のみ行います。
 
-## Building from source
+## ソースからのビルド
 
-You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). Building the plugin also needs a
-Dalamud dev environment (XIVLauncher with Dalamud installed, or `DALAMUD_HOME` on Linux). The engine
-and its tests don't need that.
+[.NET 10 SDK](https://dotnet.microsoft.com/download) が必要です。プラグイン本体のビルドには Dalamud の
+開発環境（Dalamud 導入済みの XIVLauncher、または Linux では `DALAMUD_HOME`）も必要です。エンジンと
+テストには不要です。
 
 ```bash
 dotnet build MahjongXiv.slnx -c Release
@@ -93,44 +96,9 @@ dotnet build MahjongXiv.slnx -c Release
 dotnet test MahjongXiv.slnx
 ```
 
-The plugin zip is written to `MahjongXiv/bin/x64/Release/MahjongXIV/latest.zip`. To try a local
-build, add the output folder under **Dev Plugin Locations** in `/xlsettings` → Experimental.
+## クレジットとライセンス
 
-| Project | Contents |
-|---|---|
-| `MahjongXiv.Engine` | Pure C# solver with no Dalamud dependency: tiles, shanten, ukeire, yaku, Doman scoring, discard EV, call policy, defense |
-| `MahjongXiv` | The Dalamud plugin: reads the `Emj`/`EmjL` table addon, runs the overlay and window, drives auto-play |
-| `tests/MahjongXiv.Engine.Tests` | xUnit tests for the engine |
-| `tools/MahjongXiv.Simulator` | Self-play simulator for evaluating policy changes |
-
-### Simulator
-
-```bash
-dotnet run --project tools/MahjongXiv.Simulator -c Release -- 2000 7
-```
-
-```bash
-dotnet run --project tools/MahjongXiv.Simulator -c Release -- ab 2000 7
-```
-
-The first command runs self-play with every seat on the current policy, using 2000 matches and
-seed 7. The second runs an A/B test. Its candidate policy comes from
-`tools/MahjongXiv.Simulator/Policies.cs`, or from `key=value` overrides of `EvalOptions`. The
-candidate plays each seat in turn against three baseline players on the same walls. The result is
-the candidate's score against the table average, with a standard error. Two identical policies
-score exactly 0.
-
-Results are reproducible for a given seed. Judge policy changes with `ab`. Self-play alone can't
-show whether a change scores more points.
-
-Live findings about the game UI (node ids, callback opcodes, table states) are in
-[docs/LIVE-VERIFICATION.md](docs/LIVE-VERIFICATION.md).
-
-## Credits and license
-
-MahjongXIV is a fork of [FFXIV-AutoMahjongSolver](https://github.com/XeldarAlz/FFXIV-AutoMahjongSolver)
-by Xeldar Alz. This fork adds a new compact interface, faster solver internals, discard lookahead
-and ranked-table handling.
-
-It is licensed under the [GNU AGPL v3.0 or later](LICENSE.md), like the original. See [NOTICE](NOTICE)
-for the copyright notices.
+MahjongXIV JP は kuchris 氏の [MahjongXIV](https://github.com/kuchris/MahjongXIV) のフォークで、
+MahjongXIV は Xeldar Alz 氏の [FFXIV-AutoMahjongSolver](https://github.com/XeldarAlz/FFXIV-AutoMahjongSolver)
+のフォークです。ライセンスは元プロジェクトと同じ [GNU AGPL v3.0 以降](LICENSE.md) です。著作権表示は
+[NOTICE](NOTICE) を参照してください。

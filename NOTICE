@@ -1,3 +1,16 @@
+MahjongXIV JP
+Copyright (c) 2026 MMMMXIV
+
+MahjongXIV JP is a modified version of MahjongXIV by kuchris
+(https://github.com/kuchris/MahjongXIV), distributed under the same license.
+Changes include Japanese UI and Japanese client support, a table-aware
+Suggest mode and a separate plugin identity (MahjongXIVJP); the full history
+is in the git log.
+
+The upstream notices follow and are preserved as required by the AGPL.
+
+------------------------------------------------------------------------
+
 MahjongXIV
 Copyright (c) 2026 kuchris
 

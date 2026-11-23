@@ -18,7 +18,7 @@ public sealed class MainWindow : Window, IDisposable
 
     private readonly Plugin plugin;
 
-    public MainWindow(Plugin plugin) : base("MahjongXIV###MahjongXivMain")
+    public MainWindow(Plugin plugin) : base("MahjongXIV JP###MahjongXivJpMain")
     {
         this.plugin = plugin;
         Size = new Vector2(340, 300);

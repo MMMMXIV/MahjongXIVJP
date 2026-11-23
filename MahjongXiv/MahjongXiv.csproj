@@ -5,9 +5,9 @@
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
-    <!-- Frozen to the original published InternalName: Dalamud keys plugin updates off
-         this name, so keeping it lets every existing install update in place despite the rebrand. -->
-    <AssemblyName>MahjongXIV</AssemblyName>
+    <!-- The Japanese edition is published as its own plugin (InternalName MahjongXIVJP), so it can be
+         installed next to kuchris's MahjongXIV without the two replacing each other. -->
+    <AssemblyName>MahjongXIVJP</AssemblyName>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))'">

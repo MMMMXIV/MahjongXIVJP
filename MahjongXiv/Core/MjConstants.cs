@@ -2,8 +2,8 @@ namespace MahjongXiv.Core;
 
 internal static class MjConstants
 {
-    public const string PrimaryCommand = "/mj";
-    public const string AliasCommand = "/mahjongxiv";
+    public const string PrimaryCommand = "/mjjp";
+    public const string AliasCommand = "/mahjongjp";
 
     public const string LogPrefix = "[MJ]";
 

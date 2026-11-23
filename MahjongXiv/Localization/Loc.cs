@@ -30,7 +30,7 @@ internal static class Loc
         // Warnings
         ["warn.tilesUnreadable"] = "Tiles not recognized: use the default tile design.",
         ["warn.clientLanguage"] = "This client language is not verified: seat wind and riichi may be misread.",
-        ["warn.japaneseBeta"] = "Japanese client support is new. If something is misread, report the output of /mj state and /mj options.",
+        ["warn.japaneseBeta"] = "Japanese client support is new. If something is misread, report the output of /mjjp state and /mjjp options.",
 
         // Suggest mode
         ["suggest.openTable"] = "Open a Doman Mahjong table to see suggestions.",
@@ -108,12 +108,12 @@ internal static class Loc
         ["footer"] = "Fork of FFXIV-AutoMahjongSolver by Xeldar Alz · AGPL-3.0",
 
         // Table guard (also printed to chat)
-        ["block.ranked"] = "Ranked table: auto-play is off here (enable it under Settings in /mj). Suggestions still work.",
+        ["block.ranked"] = "Ranked table: auto-play is off here (enable it under Settings in /mjjp). Suggestions still work.",
         ["block.unknown"] = "Not a recognized casual table: auto-play is disabled here. Suggestions still work.",
 
         // Commands
-        ["cmd.help"] = "Toggle the window. /mj auto | suggest [on|off]. Debug: dump|tree|board|state|melds|options|capture|probe|diag|events|buttons|click-discard.",
-        ["cmd.alias"] = "Alias for /mj.",
+        ["cmd.help"] = "Toggle the window. /mjjp auto | suggest [on|off]. Debug: dump|tree|board|state|melds|options|capture|probe|diag|events|buttons|click-discard.",
+        ["cmd.alias"] = "Alias for /mjjp.",
     };
 
     private static readonly Dictionary<string, string> Ja = new(StringComparer.Ordinal)
@@ -134,7 +134,7 @@ internal static class Loc
 
         ["warn.tilesUnreadable"] = "牌を認識できません。牌のデザインを標準に戻してください。",
         ["warn.clientLanguage"] = "このクライアント言語は未検証です。自風やリーチ状態を誤認識する場合があります。",
-        ["warn.japaneseBeta"] = "日本語クライアント対応は新しい機能です。誤認識があれば /mj state と /mj options の結果を報告してください。",
+        ["warn.japaneseBeta"] = "日本語クライアント対応は新しい機能です。誤認識があれば /mjjp state と /mjjp options の結果を報告してください。",
 
         ["suggest.openTable"] = "ドマ式麻雀の卓に着くと推奨が表示されます。",
         ["suggest.reading"] = "手牌を読み取り中…",
@@ -206,11 +206,11 @@ internal static class Loc
 
         ["footer"] = "Xeldar Alz 氏の FFXIV-AutoMahjongSolver のフォーク · AGPL-3.0",
 
-        ["block.ranked"] = "ランクマッチの卓です。自動打牌は無効です（/mj の設定で有効化できます）。推奨表示は使えます。",
+        ["block.ranked"] = "ランクマッチの卓です。自動打牌は無効です（/mjjp の設定で有効化できます）。推奨表示は使えます。",
         ["block.unknown"] = "認識済みのカジュアル卓ではないため、自動打牌は無効です。推奨表示は使えます。",
 
-        ["cmd.help"] = "ウィンドウの表示切替。/mj auto | suggest [on|off]。デバッグ: dump|tree|board|state|melds|options|capture|probe|diag|events|buttons|click-discard",
-        ["cmd.alias"] = "/mj の別名です。",
+        ["cmd.help"] = "ウィンドウの表示切替。/mjjp auto | suggest [on|off]。デバッグ: dump|tree|board|state|melds|options|capture|probe|diag|events|buttons|click-discard",
+        ["cmd.alias"] = "/mjjp の別名です。",
     };
 
     /// <summary>Whether the UI currently renders in Japanese (explicit setting, else Dalamud's UI language or the client language).</summary>

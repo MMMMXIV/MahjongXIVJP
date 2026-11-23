@@ -28,7 +28,7 @@ public sealed class Plugin : IDalamudPlugin
     internal static Configuration Cfg { get; private set; } = null!;
 
     internal Configuration Configuration { get; }
-    internal WindowSystem WindowSystem { get; } = new("MahjongXiv");
+    internal WindowSystem WindowSystem { get; } = new("MahjongXivJp");
 
     internal AutoPlayController AutoPlay { get; }
 
