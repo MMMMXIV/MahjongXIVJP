@@ -12,7 +12,7 @@ namespace MahjongXiv.Core.Game;
 /// </summary>
 internal sealed unsafe class EmjCaptureLogger : IDisposable
 {
-    private delegate void FireCallbackDelegate(AtkUnitBase* addon, int valueCount, AtkValue* values, byte updateState);
+    private delegate bool FireCallbackDelegate(AtkUnitBase* addon, uint valueCount, AtkValue* values, bool updateState);
 
     private readonly Hook<FireCallbackDelegate>? hook;
 
@@ -63,7 +63,7 @@ internal sealed unsafe class EmjCaptureLogger : IDisposable
         }
     }
 
-    private void FireCallbackDetour(AtkUnitBase* addon, int valueCount, AtkValue* values, byte updateState)
+    private bool FireCallbackDetour(AtkUnitBase* addon, uint valueCount, AtkValue* values, bool updateState)
     {
         try
         {
@@ -75,16 +75,16 @@ internal sealed unsafe class EmjCaptureLogger : IDisposable
             MjLog.Error($"capture detour: {ex.Message}");
         }
 
-        hook!.Original(addon, valueCount, values, updateState);
+        return hook!.Original(addon, valueCount, values, updateState);
     }
 
-    private static void LogCallback(AtkUnitBase* addon, int valueCount, AtkValue* values, byte updateState)
+    private static void LogCallback(AtkUnitBase* addon, uint valueCount, AtkValue* values, bool updateState)
     {
         int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
 
         var sb = new StringBuilder();
         sb.Append($"FireCallback state={state} updateState={updateState} count={valueCount}:");
-        int n = Math.Clamp(valueCount, 0, 16);
+        int n = (int)Math.Min(valueCount, 16u);
         for (int i = 0; i < n; i++)
         {
             AtkValue v = values[i];
