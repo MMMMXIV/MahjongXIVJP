@@ -169,6 +169,9 @@ static void RunAb(int matches, int seed, SimRules rules)
     Rates("candidate", cand);
     PrintTiming("baseline", ctrl);
     PrintTiming("candidate", cand);
+    for (int k = 0; k < 2; k++)
+        if (cand.CalibCount[k] > 0)
+            Console.WriteLine($"  calibration {(k == 1 ? "riichi" : "dama  ")}: n={cand.CalibCount[k]}, predicted win {100 * cand.CalibPredicted[k] / cand.CalibCount[k]:F1}%, actual {100.0 * cand.CalibWins[k] / cand.CalibCount[k]:F1}%");
     Console.WriteLine("  (± is the 95% confidence interval, 1.96 standard errors over matches; differences use the per-match pairing)");
 }
 
@@ -219,6 +222,12 @@ static void Fold(SimStats into, SimStats match, int seat)
     into.Riichis[0] += match.Riichis[seat];
     // Timing is only recorded for timed agents; the caller fixes up the all-timed control.
     into.Decisions += match.Decisions;
+    for (int k = 0; k < 2; k++)
+    {
+        into.CalibCount[k] += match.CalibCount[k];
+        into.CalibPredicted[k] += match.CalibPredicted[k];
+        into.CalibWins[k] += match.CalibWins[k];
+    }
     into.DecisionTicks += match.DecisionTicks;
     into.MaxDecisionTicks = Math.Max(into.MaxDecisionTicks, match.MaxDecisionTicks);
     for (int b = 0; b < into.DecisionBuckets.Length; b++)

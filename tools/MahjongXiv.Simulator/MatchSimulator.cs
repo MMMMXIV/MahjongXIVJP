@@ -27,6 +27,11 @@ internal sealed class SimStats
     public long MaxDecisionTicks;
     public readonly long[] DecisionBuckets = new long[8]; // <1ms, <2, <5, <10, <20, <50, <100, >=100
 
+    // Calibration of the riichi/dama win model: first judged tenpai of a hand, predicted vs actual.
+    public readonly long[] CalibCount = new long[2];      // [0] dama, [1] riichi
+    public readonly double[] CalibPredicted = new double[2];
+    public readonly long[] CalibWins = new long[2];
+
     public void RecordDecision(long ticks)
     {
         Decisions++;
@@ -51,6 +56,12 @@ internal sealed class SimStats
         MaxDecisionTicks = Math.Max(MaxDecisionTicks, other.MaxDecisionTicks);
         for (int b = 0; b < DecisionBuckets.Length; b++)
             DecisionBuckets[b] += other.DecisionBuckets[b];
+        for (int k = 0; k < 2; k++)
+        {
+            CalibCount[k] += other.CalibCount[k];
+            CalibPredicted[k] += other.CalibPredicted[k];
+            CalibWins[k] += other.CalibWins[k];
+        }
         for (int s = 0; s < 4; s++)
         {
             Wins[s] += other.Wins[s];

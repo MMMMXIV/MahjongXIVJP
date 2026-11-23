@@ -308,6 +308,7 @@ public static class StrategicPolicy
             bool declare = info0.Waits > 0 && riichi0 >= dama0;
             return legacy with
             {
+                WinChance = declare ? lastRiichiWin : lastDamaWin,
                 DeclareRiichi = declare,
                 Reason = $"{legacy.Reason.Replace(" + riichi", string.Empty)}{(declare ? " + riichi" : ", dama")} (ev dama {dama0:F0} / riichi {riichi0:F0})",
                 Kind = declare ? legacy.Kind : TurnReason.Dama,
@@ -430,6 +431,8 @@ public static class StrategicPolicy
     }
 
     /// <summary>Expected utility of a tenpai played dama (can still fold later) and with riichi (cannot).</summary>
+    [ThreadStatic] private static double lastDamaWin, lastRiichiWin;
+
     private static (double Dama, double Riichi) TenpaiValues(
         TenpaiInfo info, TurnInput input, Utility util, List<(OpponentView Opp, double Tenpai, double Loss)> threats,
         ScoringOptions scoring, double unseen, int draws, double otherEnd, double futureDanger, EvalOptions opts)
@@ -438,6 +441,8 @@ public static class StrategicPolicy
         bool damaRon = info.DamaRonPossible && !info.Furiten;
 
         var d = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, opts.DamaRonRate, damaRon, otherEnd, futureDanger * 0.6);
+        lastDamaWin = d.Win;
+        lastRiichiWin = -1;
         double dama = d.Win * util.Gain(MixedValue(info.DamaRon, info.DamaTsumo, damaRon) + Sticks(input))
                       - d.DealIn * avgLoss
                       + d.TenpaiAtEnd * util.Gain(1000) * 0.6;
@@ -448,6 +453,7 @@ public static class StrategicPolicy
             double hazard = Math.Max(futureDanger, 0.012 * opts.DealInScale); // cannot fold once declared
             // A riichi makes opponents defend: fewer rons for us, but also fewer of their wins.
             var r = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, opts.RiichiRonRate, !info.Furiten, otherEnd * 0.8, hazard);
+            lastRiichiWin = r.Win;
             double value = MixedValue(info.RiichiRon, info.RiichiTsumo, !info.Furiten) * UraFactor(info.RiichiRon);
             // The stick comes back on a win, so it only costs when the hand is not won.
             riichi = r.Win * util.Gain(value + Sticks(input))
