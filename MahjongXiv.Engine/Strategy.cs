@@ -288,34 +288,9 @@ public static class StrategicPolicy
         ScoringOptions scoring = input.Context.Scoring ?? ScoringOptions.Default;
 
         // Threats with their tenpai chance and the utility lost when dealing into them.
-        var threats = new List<(OpponentView Opp, double Tenpai, double Loss)>();
         var util = new Utility(input, opts.PlacementAware);
-        if (input.Opponents is { } opponents)
-        {
-            foreach (OpponentView o in opponents)
-            {
-                double tenpai = DefenseModel.TenpaiChance(o, wall);
-                if (tenpai > 0)
-                    threats.Add((o, tenpai, util.LossTo(o.Seat, ThreatValue(o, scoring.Rules))));
-            }
-        }
-        else
-        {
-            // Legacy callers only pass riichi rivers.
-            int seat = 0;
-            foreach (IReadOnlyList<int> river in input.ThreatRivers)
-            {
-                var o = new OpponentView { Seat = -1 - seat++, River = river, Riichi = true };
-                threats.Add((o, 1.0, util.LossTo(-1, ThreatValue(o, scoring.Rules))));
-            }
-        }
-
-        int riichiThreats = threats.Count(t => t.Opp.Riichi);
-        double otherEnd = 0.03 + 0.045 * riichiThreats + 0.02 * (threats.Count - riichiThreats);
-        double futureDanger = 0;
-        foreach (var t in threats)
-            futureDanger += t.Tenpai * 0.045 * opts.DealInScale;
-        futureDanger = Math.Min(0.4, futureDanger);
+        var threats = Threats(input, util, scoring, wall);
+        (double otherEnd, double futureDanger) = Hazards(threats, opts);
 
         // Nobody to defend against (or push/fold off): the value ranking's discard stands; only the
         // riichi call is re-judged.
@@ -630,11 +605,19 @@ public static class StrategicPolicy
         Span<int> hand = stackalloc int[Tiles.TypeCount];
         input.Counts14.CopyTo(hand);
         hand[opt.Tile]--;
-        int aka = AkaAfter(input, opt.Tile);
+        return OneShantenValue(hand, AkaAfter(input, opt.Tile), opt.Accepts, input, seen, scoring, memo, out avgWaits);
+    }
+
+    private static double OneShantenValue(
+        ReadOnlySpan<int> hand13, int aka, IReadOnlyList<AcceptTile> accepts, TurnInput input, int[] seen, ScoringOptions scoring,
+        Dictionary<UInt128, TenpaiInfo> memo, out double avgWaits)
+    {
+        Span<int> hand = stackalloc int[Tiles.TypeCount];
+        hand13.CopyTo(hand);
         int melds = input.Melds.Count;
 
         double weight = 0, value = 0, waitsSum = 0;
-        foreach (AcceptTile acc in opt.Accepts.OrderByDescending(a => a.Remaining).Take(6))
+        foreach (AcceptTile acc in accepts.OrderByDescending(a => a.Remaining).Take(6))
         {
             hand[acc.Tile]++;
             double bestVal = 0, bestWaits = 0;
@@ -666,6 +649,96 @@ public static class StrategicPolicy
 
         avgWaits = weight > 0 ? Math.Max(1, waitsSum / weight) : 4;
         return weight > 0 ? value / weight : EstimatePoints(1, input.Context.Dealer, scoring);
+    }
+
+    /// <summary>
+    /// Expected utility of holding <paramref name="input"/>.Counts14 as a finished turn (a 13-tile
+    /// equivalent hand waiting for its next draw): win chance × value − future deal-in, against the
+    /// table in <paramref name="input"/>. Used to compare passing a call with taking it.
+    /// </summary>
+    public static double PositionValue(TurnInput input)
+    {
+        EvalOptions opts = input.Options;
+        int[] hand = input.Counts14;
+        int[] seen = input.Seen ?? hand;
+        int wall = input.WallRemaining >= 0 ? input.WallRemaining : 40;
+        int draws = Math.Max(0, (wall + 3) / 4);
+        double unseen = Math.Max(1, 136 - seen.Sum());
+        ScoringOptions scoring = input.Context.Scoring ?? ScoringOptions.Default;
+        var util = new Utility(input, opts.PlacementAware);
+        var threats = Threats(input, util, scoring, wall);
+        (double otherEnd, double futureDanger) = Hazards(threats, opts);
+        var memo = new Dictionary<UInt128, TenpaiInfo>();
+
+        int melds = input.Melds.Count;
+        Acceptance acc = UkeireCalculator.Accept(hand, melds, seen);
+        int aka = 0;
+        if (input.Context.AkaByType is { } a)
+            foreach (int x in a)
+                aka += x;
+
+        if (acc.Shanten == 0)
+        {
+            TenpaiInfo info = TenpaiOf(hand, input, seen, scoring, memo, aka, -1, -1);
+            var probe = input with { RiichiAvailable = input.Context.Closed };
+            (double dama, double riichi) = TenpaiValues(info, probe, util, threats, scoring, unseen, draws, otherEnd, futureDanger, opts);
+            return Math.Max(dama, riichi);
+        }
+
+        double tenpaiWaits = 5;
+        double avgValue = acc.Shanten == 1
+            ? OneShantenValue(hand, aka, acc.Tiles, input, seen, scoring, memo, out tenpaiWaits)
+            : EstimatePoints(1 + HeldDora(input), input.Context.Dealer, scoring);
+        var o = WinModel.Run(acc.Shanten, acc.Count, tenpaiWaits, unseen, draws, 0.6, true, otherEnd, futureDanger);
+        return o.Win * util.Gain(avgValue + Sticks(input)) - o.DealIn * AvgLoss(threats, util, scoring);
+    }
+
+    /// <summary>Utility lost by discarding <paramref name="tile"/> now, against every threat.</summary>
+    public static double DiscardRisk(TurnInput input, int tile)
+    {
+        ScoringOptions scoring = input.Context.Scoring ?? ScoringOptions.Default;
+        int wall = input.WallRemaining >= 0 ? input.WallRemaining : 40;
+        var util = new Utility(input, input.Options.PlacementAware);
+        int[] seen = input.Seen ?? input.Counts14;
+        double loss = 0;
+        foreach (var t in Threats(input, util, scoring, wall))
+            loss += t.Tenpai * DefenseModel.DealIn(tile, t.Opp, seen, input.Opponents) * input.Options.DealInScale * t.Loss;
+        return loss;
+    }
+
+    private static List<(OpponentView Opp, double Tenpai, double Loss)> Threats(TurnInput input, Utility util, ScoringOptions scoring, int wall)
+    {
+        var threats = new List<(OpponentView Opp, double Tenpai, double Loss)>();
+        if (input.Opponents is { } opponents)
+        {
+            foreach (OpponentView o in opponents)
+            {
+                double tenpai = DefenseModel.TenpaiChance(o, wall);
+                if (tenpai > 0)
+                    threats.Add((o, tenpai, util.LossTo(o.Seat, ThreatValue(o, scoring.Rules))));
+            }
+        }
+        else
+        {
+            int seat = 0;
+            foreach (IReadOnlyList<int> river in input.ThreatRivers)
+            {
+                var o = new OpponentView { Seat = -1 - seat++, River = river, Riichi = true };
+                threats.Add((o, 1.0, util.LossTo(-1, ThreatValue(o, scoring.Rules))));
+            }
+        }
+
+        return threats;
+    }
+
+    private static (double OtherEnd, double FutureDanger) Hazards(List<(OpponentView Opp, double Tenpai, double Loss)> threats, EvalOptions opts)
+    {
+        int riichiThreats = threats.Count(t => t.Opp.Riichi);
+        double otherEnd = 0.03 + 0.045 * riichiThreats + 0.02 * (threats.Count - riichiThreats);
+        double futureDanger = 0;
+        foreach (var t in threats)
+            futureDanger += t.Tenpai * 0.045 * opts.DealInScale;
+        return (otherEnd, Math.Min(0.4, futureDanger));
     }
 
     private static int AkaAfter(TurnInput input, int discard)

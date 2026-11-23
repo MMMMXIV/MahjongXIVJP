@@ -27,8 +27,63 @@ public static class CallPolicy
     public static bool ShouldPon(CallInput input)
         => ShouldPon(input.Counts13, input.Melds, input.Tile, input.Context, input.OpponentRiichi);
 
-    /// <summary>The pon rule under <paramref name="options"/> (the strategic variant is not enabled yet, so this is the shipped rule).</summary>
-    public static bool ShouldPon(CallInput input, EvalOptions options) => ShouldPon(input);
+    /// <summary>
+    /// The pon rule under <paramref name="options"/>. With <see cref="EvalOptions.SmartPon"/> the call is
+    /// priced instead of rule-checked: the value of keeping the closed hand (riichi still possible)
+    /// against the value of the open hand after the best discard, minus that discard's deal-in risk. An
+    /// open hand is only worth anything through a yaku, which the tenpai values already require; far
+    /// from tenpai, where yaku are not evaluated, the shipped yaku-path rule must also pass.
+    /// </summary>
+    public static bool ShouldPon(CallInput input, EvalOptions options)
+    {
+        bool shipped = ShouldPon(input);
+        if (!options.SmartPon || input.Tile < 0 || input.Counts13[input.Tile] < 2)
+            return shipped;
+
+        var baseInput = new TurnInput
+        {
+            Counts14 = input.Counts13,
+            Melds = input.Melds,
+            Seen = input.Seen,
+            Context = input.Context,
+            Opponents = input.Opponents,
+            Game = input.Game,
+            WallRemaining = input.WallRemaining,
+            Options = options,
+            ThreatRivers = input.Opponents?.Where(o => o.Riichi).Select(o => o.River).ToList()
+                           ?? (IReadOnlyList<IReadOnlyList<int>>)Array.Empty<IReadOnlyList<int>>(),
+        };
+        double pass = StrategicPolicy.PositionValue(baseInput);
+
+        int[] after = (int[])input.Counts13.Clone();
+        after[input.Tile] -= 2;
+        var melds = new List<Meld>(input.Melds) { new Meld(MeldKind.Pon, [input.Tile, input.Tile, input.Tile]) };
+        int[]? seen = input.Seen is null ? null : (int[])input.Seen.Clone();
+        if (seen is not null)
+            seen[input.Tile] = Math.Min(4, seen[input.Tile] + 1); // the called tile joins our meld
+
+        var openCtx = input.Context with { Closed = false };
+        List<ScoredDiscard> ranked = DiscardEvaluator.Rank(after, melds, seen, openCtx, options);
+        if (ranked.Count == 0)
+            return false;
+
+        int bestShanten = ranked[0].Option.Shanten;
+        if (bestShanten >= 2 && !shipped)
+            return false;
+
+        double best = double.NegativeInfinity;
+        foreach (ScoredDiscard s in ranked.Take(4))
+        {
+            int[] hand = (int[])after.Clone();
+            hand[s.Option.Tile]--;
+            var ponInput = baseInput with { Counts14 = hand, Melds = melds, Seen = seen, Context = openCtx };
+            double v = StrategicPolicy.PositionValue(ponInput) - StrategicPolicy.DiscardRisk(baseInput with { Seen = seen }, s.Option.Tile);
+            best = Math.Max(best, v);
+        }
+
+        // A margin: opening the hand also gives up defensive flexibility the model does not price.
+        return best > pass * 1.1 + 30;
+    }
 
     public static bool ShouldPon(
         ReadOnlySpan<int> counts13, IReadOnlyList<Meld>? melds, int tile, EvalContext ctx, bool opponentRiichi)

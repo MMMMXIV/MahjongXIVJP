@@ -214,3 +214,57 @@ public class StrategyTests
         Assert.InRange(wide.Win, 0.3, 0.9);
     }
 }
+
+public class SmartPonTests
+{
+    private static readonly EvalOptions Smart = EvalOptions.Strategic with { SmartPon = true };
+
+    private static CallInput Call(string hand13, string tile, bool riichiOpp = false)
+    {
+        int[] counts = Tiles.ParseCounts(hand13);
+        var opps = new[]
+        {
+            new OpponentView { Seat = 1, River = new List<int> { 27, 28 }, Riichi = riichiOpp, RiichiDiscardIndex = riichiOpp ? 1 : -1 },
+            new OpponentView { Seat = 2, River = new List<int> { 29 } },
+            new OpponentView { Seat = 3, River = new List<int> { 30, Tiles.Index(tile) } },
+        };
+        int[] seen = (int[])counts.Clone();
+        foreach (var o in opps)
+            foreach (int t in o.River)
+                seen[t]++;
+        return new CallInput
+        {
+            Counts13 = counts,
+            Tile = Tiles.Index(tile),
+            Context = new EvalContext { SeatWind = 1, DoraIndicators = [Tiles.Index("1z")] },
+            Seen = seen,
+            Opponents = opps,
+            WallRemaining = 50,
+            OpponentRiichi = riichiOpp,
+        };
+    }
+
+    [Fact]
+    public void PonsYakuhaiThatAdvancesTheHand()
+    {
+        // Chun pair in a slow hand: the pon gives the yaku and a shanten.
+        CallInput input = Call("13m468p2479s1177z", "7z");
+        Assert.True(CallPolicy.ShouldPon(input, Smart));
+    }
+
+    [Fact]
+    public void DoesNotPonIntoAYakulessHand()
+    {
+        // Ponning 9s leaves an open hand with terminals and no yakuhai: no yaku, never worth it.
+        CallInput input = Call("123m456p78s99s234m", "9s");
+        Assert.False(CallPolicy.ShouldPon(input, Smart));
+    }
+
+    [Fact]
+    public void KeepsAGoodClosedTenpaiInsteadOfPonning()
+    {
+        // Closed pinfu-ish tenpai (riichi available): ponning 5p would only reshape an already-ready hand.
+        CallInput input = Call("234m567m55p34s678s", "5p");
+        Assert.False(CallPolicy.ShouldPon(input, Smart));
+    }
+}
