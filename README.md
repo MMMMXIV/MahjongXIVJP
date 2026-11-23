@@ -1,11 +1,15 @@
 # MahjongXIV
 
+[日本語版 README はこちら](README.ja.md)
+
 A [Dalamud](https://github.com/goatcorp/Dalamud) plugin for FFXIV's Doman Mahjong. It reads the
 table, works out the best discard and call, and can either point at the move for you or play the
 hand itself.
 
-- **Suggest mode**: shows the best discard, the alternatives, your shanten and your waits. It can
-  also draw a marker over the recommended tile on the board. It never sends an input.
+- **Suggest mode**: shows the best discard, the tiles it accepts, the alternatives, your shanten and
+  your waits. It uses the same table-aware policy as auto-play (visible tiles, dora, folding against
+  a riichi, furiten avoidance, when to riichi). It can also draw a marker over the recommended tile on
+  the board. It never sends an input.
 - **Auto-play mode**: discards, declares riichi, tsumo and ron, takes or passes calls, answers the
   nine-terminals redeal prompt, and advances result screens. It waits a random, configurable time
   before each action.
@@ -45,9 +49,10 @@ You'll find these under **Settings** in the main window:
 
 | Setting | Default | Notes |
 |---|---|---|
+| Language | Auto | English or Japanese UI. Auto follows Dalamud's UI language |
 | Auto-play on ranked tables | Off | Lets auto-play act at ranked tables (see below) |
 | Highlight the suggested tile | On | Suggest mode only. **Style**: Brackets, Arrow or Glow. **Colour**: one of seven palettes |
-| Auto-play delays | Discard 0.7–1.8 s, Call 0.5–1.2 s, Results 1.5–2.8 s | Each action waits a random time in its range |
+| Auto-play delays | Discard 0.7–1.8 s, Call 0.5–1.2 s, Results 1.5–2.8 s | Each action waits a random time in its range. **Reset delays** restores these |
 
 ### Tables and safety
 
@@ -67,8 +72,10 @@ Suggest mode works at every table.
 
 ### Known limitations
 
-- Use the default tile design and an English client. With other tile designs the hand can't be
-  read, and on other client languages the seat wind and riichi state may be misread.
+- Use the default tile design and an English or Japanese client. With other tile designs the hand
+  can't be read. The Japanese game strings (seat winds, riichi badge, call buttons) are the standard
+  terms but newer than the English ones; if a Japanese table misreads, please report the output of
+  `/mj state` and `/mj options`. German and French clients may misread seat wind and riichi state.
 - Auto-play never calls chi or kan. It only takes a pon when the hand already has a yaku, the
   tile is yakuhai, or it is a dora/tanyao hand.
 

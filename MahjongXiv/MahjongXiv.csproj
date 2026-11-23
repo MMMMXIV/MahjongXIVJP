@@ -30,10 +30,11 @@
     <Using Include="System.Linq" />
   </ItemGroup>
 
-  <!-- DalamudPackager omits the Images/ folder from latest.zip; patch the icon in afterwards. -->
+  <!-- DalamudPackager omits the Images/ folder from latest.zip; patch the icon in afterwards.
+       The patch script is PowerShell, so it only runs on Windows; Linux builds keep the plain zip. -->
   <Target Name="BundleIcon"
           AfterTargets="DefaultDalamudPackagerRelease"
-          Condition="'$(Configuration)' == 'Release'">
+          Condition="'$(Configuration)' == 'Release' and '$(OS)' == 'Windows_NT'">
     <PropertyGroup>
       <ZipPath>$(ProjectDir)$(OutputPath)$(AssemblyName)\latest.zip</ZipPath>
       <IconPath>$(ProjectDir)Images\Icon.png</IconPath>

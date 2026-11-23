@@ -2,7 +2,7 @@
     "Author": "kuchris",
     "Name": "MahjongXIV",
     "Punchline": "Doman Mahjong, solved for you.",
-    "Description": "Reads Doman Mahjong, computes the best discard and call, shows a suggestion overlay, and can play for you.",
+    "Description": "Reads Doman Mahjong, computes the best discard and call, shows a suggestion overlay, and can play for you. English and Japanese UI.\n\nドマ式麻雀の卓を読み取り、最善の打牌と鳴きを計算して推奨表示します。自動打牌にも対応。日本語UI対応。",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/kuchris/MahjongXIV",
     "IconUrl": "https://raw.githubusercontent.com/kuchris/MahjongXIV/main/MahjongXiv/Images/Icon.png",
@@ -11,6 +11,8 @@
         "doman mahjong",
         "gold saucer",
         "solver",
-        "automation"
+        "automation",
+        "麻雀",
+        "ドマ式麻雀"
     ]
 }

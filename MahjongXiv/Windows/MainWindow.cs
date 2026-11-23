@@ -4,6 +4,7 @@ using Dalamud.Game;
 using Dalamud.Interface.Windowing;
 using MahjongXiv.Core;
 using MahjongXiv.Engine;
+using MahjongXiv.Localization;
 
 namespace MahjongXiv.Windows;
 
@@ -16,7 +17,6 @@ public sealed class MainWindow : Window, IDisposable
     private const int AlternativeCount = 3;
 
     private readonly Plugin plugin;
-    private readonly LiveBoard board = new();
 
     public MainWindow(Plugin plugin) : base("MahjongXIV###MahjongXivMain")
     {
@@ -36,163 +36,247 @@ public sealed class MainWindow : Window, IDisposable
     {
         AutoPlayController auto = plugin.AutoPlay;
         Configuration cfg = Plugin.Cfg;
+        LiveBoard board = plugin.Board;
 
         board.Refresh();
 
-        DrawStatus(auto);
+        DrawStatus(board, auto);
         DrawControls(auto);
         ImGui.Separator();
 
         if (auto.BlockedReason is { } blocked)
             ImGui.TextColored(Styling.AccentAmber, blocked);
-        DrawWarnings();
+        DrawWarnings(board);
 
         if (auto.Running && auto.Mode == PlayMode.Auto)
-            DrawAutoActivity(auto);
+            DrawAutoActivity(board, auto);
         else
-            DrawSuggestion();
+            DrawSuggestion(board);
 
         ImGui.Spacing();
-        if (ImGui.CollapsingHeader("Settings"))
+        if (ImGui.CollapsingHeader($"{Loc.T("settings.header")}###mjSettings"))
             DrawSettings(cfg);
 
         ImGui.Spacing();
-        ImGui.TextColored(Styling.TextMuted, "Fork of FFXIV-AutoMahjongSolver by Xeldar Alz · AGPL-3.0");
+        ImGui.TextColored(Styling.TextMuted, Loc.T("footer"));
     }
 
     // ---- Status and controls ---------------------------------------------
 
-    private void DrawStatus(AutoPlayController auto)
+    private static void DrawStatus(LiveBoard board, AutoPlayController auto)
     {
-        (string text, Vector4 color) = board.Phase switch
+        (string key, Vector4 color) = board.Phase switch
         {
-            BoardPhase.OurTurn => ("Your turn", Styling.AccentSoft),
-            BoardPhase.CallOffered => ("Call offered", Styling.AccentAmberSoft),
-            BoardPhase.BetweenHands => ("Between hands", Styling.AccentBlueSoft),
-            BoardPhase.Watching => ("Watching the table", Styling.TextDim),
-            _ => ("No match open", Styling.TextMuted),
+            BoardPhase.OurTurn => ("status.ourTurn", Styling.AccentSoft),
+            BoardPhase.CallOffered => ("status.callOffered", Styling.AccentAmberSoft),
+            BoardPhase.BetweenHands => ("status.betweenHands", Styling.AccentBlueSoft),
+            BoardPhase.Watching => ("status.watching", Styling.TextDim),
+            _ => ("status.noMatch", Styling.TextMuted),
         };
 
-        ImGui.TextColored(color, $"● {text}");
+        ImGui.TextColored(color, $"● {Loc.T(key)}");
         ImGui.SameLine();
-        string engaged = !auto.Running ? "stopped" : auto.Mode == PlayMode.Auto ? "auto-play on" : "suggesting";
-        ImGui.TextColored(auto.Running ? Styling.AccentMint : Styling.TextMuted, $"· {engaged}");
+        string engaged = !auto.Running ? "engaged.stopped" : auto.Mode == PlayMode.Auto ? "engaged.auto" : "engaged.suggest";
+        ImGui.TextColored(auto.Running ? Styling.AccentMint : Styling.TextMuted, $"· {Loc.T(engaged)}");
     }
 
     private static void DrawControls(AutoPlayController auto)
     {
-        if (ImGui.RadioButton("Suggest", auto.Mode == PlayMode.Suggest))
+        if (ImGui.RadioButton($"{Loc.T("mode.suggest")}###mjModeSuggest", auto.Mode == PlayMode.Suggest))
             auto.SetMode(PlayMode.Suggest);
         ImGui.SameLine();
-        if (ImGui.RadioButton("Auto-play", auto.Mode == PlayMode.Auto))
+        if (ImGui.RadioButton($"{Loc.T("mode.auto")}###mjModeAuto", auto.Mode == PlayMode.Auto))
             auto.SetMode(PlayMode.Auto);
 
         ImGui.SameLine();
-        float width = 80f * ImGui.GetIO().FontGlobalScale;
+        string label = Loc.T(auto.Running ? "button.stop" : "button.start");
+        float width = Math.Max(80f * ImGui.GetIO().FontGlobalScale, ImGui.CalcTextSize(label).X + ImGui.GetStyle().FramePadding.X * 4);
         ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - width));
-        if (ImGui.Button(auto.Running ? "Stop" : "Start", new Vector2(width, 0)))
+        if (ImGui.Button($"{label}###mjStartStop", new Vector2(width, 0)))
             auto.SetRunning(!auto.Running);
     }
 
-    private void DrawWarnings()
+    private static void DrawWarnings(LiveBoard board)
     {
         if (board.TilesUnreadable)
-            ImGui.TextColored(Styling.AccentRose, "Tiles not recognized: use the default tile design.");
-        if (Plugin.ClientState.ClientLanguage != ClientLanguage.English)
-            ImGui.TextColored(Styling.AccentAmber, "Non-English client: seat wind and riichi may be misread.");
+            ImGui.TextColored(Styling.AccentRose, Loc.T("warn.tilesUnreadable"));
+
+        ClientLanguage lang = Plugin.ClientState.ClientLanguage;
+        if (lang != ClientLanguage.English && lang != ClientLanguage.Japanese)
+            ImGui.TextColored(Styling.AccentAmber, Loc.T("warn.clientLanguage"));
     }
 
     // ---- Suggest mode -----------------------------------------------------
 
-    private void DrawSuggestion()
+    private static void DrawSuggestion(LiveBoard board)
     {
         if (!board.Present)
         {
-            ImGui.TextColored(Styling.TextDim, "Open a Doman Mahjong table to see suggestions.");
+            ImGui.TextColored(Styling.TextDim, Loc.T("suggest.openTable"));
             return;
         }
 
         if (!board.HandRead)
         {
-            ImGui.TextColored(Styling.TextDim, "Reading your hand…");
+            ImGui.TextColored(Styling.TextDim, Loc.T("suggest.reading"));
             return;
         }
 
         HandReport report = board.Report;
-        ImGui.TextColored(Styling.TextSecondary, $"Hand: {board.Snapshot.Notation}   ({ShantenText(report.Shanten)})");
+        ImGui.TextColored(Styling.TextSecondary, Loc.F("suggest.hand", board.Snapshot.Notation, Loc.Shanten(report.Shanten)));
+        DrawThreats(board);
+
+        if (board.Phase == BoardPhase.CallOffered)
+        {
+            ImGui.TextColored(board.RonOffered ? Styling.AccentAmber : Styling.TextDim,
+                Loc.T(board.RonOffered ? "suggest.ronOffered" : "suggest.callOffered"));
+        }
 
         if (board.HandComplete)
         {
-            ImGui.TextColored(Styling.AccentAmber, "Complete hand: declare the win.");
+            ImGui.TextColored(Styling.AccentAmber, Loc.T("suggest.complete"));
+            return;
+        }
+
+        if (board.InRiichi && board.BestDiscard >= 0)
+        {
+            DrawDiscardLine(board.BestDiscard, null);
+            ImGui.TextColored(Styling.TextDim, Loc.T("suggest.inRiichi"));
+            return;
+        }
+
+        if (board.Decision is { } decision && decision.Discard >= 0)
+        {
+            DrawPolicySuggestion(board, decision);
             return;
         }
 
         if (report.Shape == HandShape.Discard && report.Discards.Count > 0)
         {
             DiscardOption best = report.Discards[0];
-            ImGui.Text("Discard");
-            ImGui.SameLine();
-            ImGui.TextColored(Styling.AccentSoft, Tiles.Name(best.Tile));
-            ImGui.SameLine();
-            ImGui.TextColored(Styling.TextDim, $"→ {ShantenText(best.Shanten)}, {best.UkeireCount} tiles accept");
-
+            DrawDiscardLine(best.Tile, best);
             for (int i = 1; i <= AlternativeCount && i < report.Discards.Count; i++)
             {
                 DiscardOption alt = report.Discards[i];
-                ImGui.TextColored(Styling.TextMuted, $"   or {Tiles.Name(alt.Tile)}: {ShantenText(alt.Shanten)}, {alt.UkeireCount} tiles");
+                ImGui.TextColored(Styling.TextMuted, Loc.F("suggest.alt", Loc.Tile(alt.Tile), Loc.Shanten(alt.Shanten), alt.UkeireCount));
             }
         }
         else if (report.Shape == HandShape.Wait && report.Wait.Count > 0)
         {
-            string waits = string.Join(" ", report.Wait.Tiles.Select(t => Tiles.Name(t.Tile)));
-            ImGui.TextColored(Styling.TextSecondary, $"Waiting on {waits} ({report.Wait.Count} tiles)");
+            string waits = Loc.Tiles(report.Wait.Tiles.Select(t => t.Tile));
+            ImGui.TextColored(Styling.TextSecondary, Loc.F("suggest.waiting", waits, report.Wait.Count));
         }
     }
 
-    private static string ShantenText(int shanten) => shanten switch
+    /// <summary>The turn policy's pick (same as auto-play), why it was picked, and the runner-up discards.</summary>
+    private static void DrawPolicySuggestion(LiveBoard board, TurnDecision decision)
     {
-        ShantenCalculator.Complete => "complete",
-        0 => "tenpai",
-        _ => $"{shanten}-shanten",
-    };
+        DiscardOption? chosen = null;
+        foreach (ScoredDiscard scored in board.RankedDiscards)
+        {
+            if (scored.Option.Tile == decision.Discard)
+            {
+                chosen = scored.Option;
+                break;
+            }
+        }
+
+        DrawDiscardLine(decision.Discard, chosen);
+
+        if (chosen is { Accepts.Count: > 0 } c)
+            ImGui.TextColored(Styling.TextDim, Loc.F("suggest.accepts", Loc.Tiles(c.Accepts.Select(a => a.Tile))));
+
+        if (decision.DeclareRiichi)
+            ImGui.TextColored(Styling.AccentAmber, Loc.T("suggest.riichi"));
+        if (decision.Kind == TurnReason.FoldVsRiichi)
+            ImGui.TextColored(Styling.AccentRose, Loc.T("suggest.fold"));
+        else if (decision.Kind == TurnReason.FuritenDodge)
+            ImGui.TextColored(Styling.AccentBlueSoft, Loc.T("suggest.furiten"));
+
+        int shown = 0;
+        foreach (ScoredDiscard scored in board.RankedDiscards)
+        {
+            if (shown >= AlternativeCount)
+                break;
+            if (scored.Option.Tile == decision.Discard)
+                continue;
+            DiscardOption alt = scored.Option;
+            ImGui.TextColored(Styling.TextMuted, Loc.F("suggest.alt", Loc.Tile(alt.Tile), Loc.Shanten(alt.Shanten), alt.UkeireCount));
+            shown++;
+        }
+    }
+
+    private static void DrawDiscardLine(int tile, DiscardOption? option)
+    {
+        ImGui.Text(Loc.T("suggest.discard"));
+        ImGui.SameLine();
+        ImGui.TextColored(Styling.AccentSoft, Loc.Tile(tile));
+        if (option is { } o)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Styling.TextDim, Loc.F("suggest.discardDetail", Loc.Shanten(o.Shanten), o.UkeireCount));
+        }
+    }
+
+    /// <summary>Names of the opponents currently in riichi, so the player sees why the advice turns defensive.</summary>
+    private static void DrawThreats(LiveBoard board)
+    {
+        if (board.Board is not { } table || !table.AnyOpponentRiichi)
+            return;
+
+        var names = new List<string>();
+        for (int i = 0; i < table.Panels.Count; i++)
+        {
+            if (i == MjConstants.SelfIndex || !table.Panels[i].Riichi)
+                continue;
+            string name = table.Panels[i].Name;
+            names.Add(name.Length > 0 ? name : $"#{i}");
+        }
+
+        ImGui.TextColored(Styling.AccentRose, Loc.F("suggest.threat", string.Join(", ", names)));
+    }
 
     // ---- Auto mode --------------------------------------------------------
 
-    private void DrawAutoActivity(AutoPlayController auto)
+    private static void DrawAutoActivity(LiveBoard board, AutoPlayController auto)
     {
         string now = board.Phase switch
         {
-            BoardPhase.OurTurn when board.HandComplete => "Declaring the win",
-            BoardPhase.OurTurn => "Playing the turn",
-            BoardPhase.CallOffered => board.RonOffered ? "Taking the ron" : "Answering the call",
-            BoardPhase.BetweenHands => "Waiting for the next hand",
-            BoardPhase.Watching => "Watching the table",
-            _ => "Waiting for a match",
+            BoardPhase.OurTurn when board.HandComplete => "auto.declaring",
+            BoardPhase.OurTurn => "auto.playing",
+            BoardPhase.CallOffered => board.RonOffered ? "auto.ron" : "auto.call",
+            BoardPhase.BetweenHands => "auto.waitingHand",
+            BoardPhase.Watching => "auto.watching",
+            _ => "auto.waitingMatch",
         };
-        ImGui.TextColored(Styling.AccentSoft, now);
+        ImGui.TextColored(Styling.AccentSoft, Loc.T(now));
 
         SessionStats stats = auto.Stats;
         TimeSpan t = stats.Elapsed;
         string elapsed = t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes}:{t.Seconds:00}";
-        ImGui.TextColored(Styling.TextSecondary, $"Wins {stats.Wins}   Discards {stats.Discards}   Riichi {stats.Riichis}   {elapsed}");
+        ImGui.TextColored(Styling.TextSecondary, Loc.F("auto.stats", stats.Wins, stats.Discards, stats.Riichis, elapsed));
 
         if (stats.Recent.Count > 0)
-            ImGui.TextColored(Styling.TextMuted, $"Last: {stats.Recent[0].Label}");
+            ImGui.TextColored(Styling.TextMuted, Loc.F("auto.last", stats.Recent[0].Label));
     }
 
     // ---- Settings ---------------------------------------------------------
 
     private static void DrawSettings(Configuration cfg)
     {
+        EnumCombo("settings.language", "lang", cfg.Language, v => cfg.Language = v);
+        if (Plugin.ClientState.ClientLanguage == ClientLanguage.Japanese)
+            ImGui.TextColored(Styling.TextMuted, Loc.T("warn.japaneseBeta"));
+
         bool ranked = cfg.AllowRankedAutoPlay;
-        if (ImGui.Checkbox("Auto-play on ranked tables", ref ranked))
+        if (ImGui.Checkbox($"{Loc.T("settings.ranked")}###mjRanked", ref ranked))
         {
             cfg.AllowRankedAutoPlay = ranked;
             cfg.Save();
         }
 
         bool highlight = cfg.HighlightSuggestedTile;
-        if (ImGui.Checkbox("Highlight the suggested tile", ref highlight))
+        if (ImGui.Checkbox($"{Loc.T("settings.highlight")}###mjHighlight", ref highlight))
         {
             cfg.HighlightSuggestedTile = highlight;
             cfg.Save();
@@ -200,25 +284,32 @@ public sealed class MainWindow : Window, IDisposable
 
         if (cfg.HighlightSuggestedTile)
         {
-            EnumCombo("Style", cfg.HighlightStyle, v => cfg.HighlightStyle = v);
-            EnumCombo("Colour", cfg.HighlightColor, v => cfg.HighlightColor = v);
+            EnumCombo("settings.style", "style", cfg.HighlightStyle, v => cfg.HighlightStyle = v);
+            EnumCombo("settings.colour", "color", cfg.HighlightColor, v => cfg.HighlightColor = v);
         }
 
-        ImGui.TextColored(Styling.TextDim, "Auto-play delays (ms, random within range)");
-        DelayRange("Discard", () => cfg.TurnDelayMinMs, v => cfg.TurnDelayMinMs = v, () => cfg.TurnDelayMaxMs, v => cfg.TurnDelayMaxMs = v, cfg);
-        DelayRange("Call", () => cfg.CallDelayMinMs, v => cfg.CallDelayMinMs = v, () => cfg.CallDelayMaxMs, v => cfg.CallDelayMaxMs = v, cfg);
-        DelayRange("Results", () => cfg.ResultDelayMinMs, v => cfg.ResultDelayMinMs = v, () => cfg.ResultDelayMaxMs, v => cfg.ResultDelayMaxMs = v, cfg);
+        ImGui.TextColored(Styling.TextDim, Loc.T("settings.delays"));
+        DelayRange("discard", () => cfg.TurnDelayMinMs, v => cfg.TurnDelayMinMs = v, () => cfg.TurnDelayMaxMs, v => cfg.TurnDelayMaxMs = v, cfg);
+        DelayRange("call", () => cfg.CallDelayMinMs, v => cfg.CallDelayMinMs = v, () => cfg.CallDelayMaxMs, v => cfg.CallDelayMaxMs = v, cfg);
+        DelayRange("results", () => cfg.ResultDelayMinMs, v => cfg.ResultDelayMinMs = v, () => cfg.ResultDelayMaxMs, v => cfg.ResultDelayMaxMs = v, cfg);
+
+        if (ImGui.SmallButton($"{Loc.T("settings.resetDelays")}###mjResetDelays"))
+        {
+            cfg.ResetDelays();
+            cfg.Save();
+        }
     }
 
-    private static void EnumCombo<T>(string label, T current, Action<T> set) where T : struct, Enum
+    /// <summary>A combo over an enum whose item labels come from <c>{prefix}.{Value}</c> localization keys.</summary>
+    private static void EnumCombo<T>(string labelKey, string prefix, T current, Action<T> set) where T : struct, Enum
     {
-        ImGui.SetNextItemWidth(140f * ImGui.GetIO().FontGlobalScale);
-        if (!ImGui.BeginCombo(label, current.ToString()))
+        ImGui.SetNextItemWidth(160f * ImGui.GetIO().FontGlobalScale);
+        if (!ImGui.BeginCombo($"{Loc.T(labelKey)}###mj_{labelKey}", Loc.T($"{prefix}.{current}")))
             return;
 
         foreach (T value in Enum.GetValues<T>())
         {
-            if (ImGui.Selectable(value.ToString(), value.Equals(current)))
+            if (ImGui.Selectable($"{Loc.T($"{prefix}.{value}")}###mj_{prefix}_{value}", value.Equals(current)))
             {
                 set(value);
                 Plugin.Cfg.Save();
@@ -245,7 +336,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         int max = getMax();
         ImGui.SetNextItemWidth(width);
-        if (ImGui.SliderInt($"{label}##{label}_max", ref max, 0, 6000))
+        if (ImGui.SliderInt($"{Loc.T($"settings.delay.{label}")}###{label}_max", ref max, 0, 6000))
         {
             setMax(max);
             if (getMin() > max)

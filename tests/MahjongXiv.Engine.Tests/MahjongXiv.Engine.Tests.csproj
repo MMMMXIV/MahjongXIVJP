@@ -15,6 +15,12 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
+  <!-- Dalamud-free plugin sources (game-string matching, tile names) compiled straight into the tests. -->
+  <ItemGroup>
+    <Compile Include="..\..\MahjongXiv\Core\Game\EmjStrings.cs" Link="Plugin\EmjStrings.cs" />
+    <Compile Include="..\..\MahjongXiv\Localization\TileNames.cs" Link="Plugin\TileNames.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\MahjongXiv.Engine\MahjongXiv.Engine.csproj" />
   </ItemGroup>

@@ -1,5 +1,6 @@
 using MahjongXiv.Core.Game;
 using MahjongXiv.Engine;
+using MahjongXiv.Localization;
 using Dalamud.Plugin.Services;
 
 namespace MahjongXiv.Core;
@@ -233,7 +234,7 @@ internal sealed class AutoPlayController : IDisposable
                 if (EmjActuator.Advance())
                 {
                     acted = true;
-                    Stats.Record(AutoActionKind.Advance, "Advanced the table");
+                    Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
                 }
 
                 break;
@@ -297,7 +298,7 @@ internal sealed class AutoPlayController : IDisposable
             // The drawn-win (Tsumo/Pass) panel may carry no AtkValues labels (verified live); the
             // affirmative button is option 0 on every captured popup, so fall back to that.
             var actions = EmjBoardReader.ReadActionOptions();
-            int tsumo = FindOption(actions, "Tsumo");
+            int tsumo = FindOption(actions, EmjAction.Tsumo);
             int option = tsumo >= 0 ? tsumo : 0;
 
             if (EmjActuator.Call(option))
@@ -305,7 +306,7 @@ internal sealed class AutoPlayController : IDisposable
                 popupAttempts++;
                 MjLog.Info($"turn: tsumo -> [11, {option}]{(tsumo < 0 ? " (unlabeled panel)" : "")} (attempt {popupAttempts}).");
                 if (popupAttempts == 1)
-                    Stats.Record(AutoActionKind.Tsumo, "Declared tsumo");
+                    Stats.Record(AutoActionKind.Tsumo, Loc.T("act.tsumo"));
                 actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // verify next tick; re-fire if still up
             }
 
@@ -323,24 +324,15 @@ internal sealed class AutoPlayController : IDisposable
             if (EmjActuator.DiscardSlot(13))
             {
                 acted = true;
-                Stats.Record(AutoActionKind.Discard, "Tsumogiri (riichi)");
+                Stats.Record(AutoActionKind.Discard, Loc.T("act.tsumogiri"));
             }
             return;
         }
 
-        int[]? seen = board?.BuildSeen(snap.Counts, snap.Melds);
-        int riichiOption = FindOption(EmjBoardReader.ReadActionOptions(), "Riichi");
+        int riichiOption = FindOption(EmjBoardReader.ReadActionOptions(), EmjAction.Riichi);
 
-        TurnDecision decision = TurnPolicy.Decide(new TurnInput
-        {
-            Counts14 = snap.Counts,
-            Melds = snap.Melds,
-            Seen = seen,
-            Context = BuildEvalContext(snap, board),
-            ThreatRivers = (IReadOnlyList<IReadOnlyList<int>>?)board?.ThreatRivers ?? Array.Empty<IReadOnlyList<int>>(),
-            OwnRiver = board?.OwnRiver ?? Array.Empty<int>(),
-            RiichiAvailable = riichiOption >= 0 && !riichiFired,
-        });
+        TurnDecision decision = TurnPolicy.Decide(
+            TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired));
 
         if (decision.Discard < 0)
             return;
@@ -354,41 +346,15 @@ internal sealed class AutoPlayController : IDisposable
             riichiFired = true;
             actAtTick = Environment.TickCount64 + RiichiFollowupDelayMs;
             MjLog.Info($"turn: riichi declared -> [11, {riichiOption}]; cutting {Tiles.Name(decision.Discard)} next tick.");
-            Stats.Record(AutoActionKind.Riichi, "Declared riichi");
+            Stats.Record(AutoActionKind.Riichi, Loc.T("act.riichi"));
             return;
         }
 
         if (EmjActuator.DiscardTile(decision.Discard))
         {
             acted = true;
-            Stats.Record(AutoActionKind.Discard, $"Discarded {Tiles.Name(decision.Discard)}");
+            Stats.Record(AutoActionKind.Discard, Loc.F("act.discard", Loc.Tile(decision.Discard)));
         }
-    }
-
-    /// <summary>
-    /// Table context for the value ranking. Seat wind and dealer status come from our own panel;
-    /// the round wind is not readable yet, so East is assumed (correct for quick matches; a wrong
-    /// guess only misweights one yakuhai pair).
-    /// </summary>
-    private static EvalContext BuildEvalContext(in HandSnapshot snap, BoardSnapshot? board)
-    {
-        int seatWind = board?.Panels[MjConstants.SelfIndex].Wind switch
-        {
-            "South" => 1,
-            "West" => 2,
-            "North" => 3,
-            _ => 0,
-        };
-
-        return new EvalContext
-        {
-            SeatWind = seatWind,
-            RoundWind = 0,
-            Dealer = seatWind == 0,
-            Closed = snap.MeldCount == 0,
-            DoraIndicators = board?.DoraIndicators,
-            AkaByType = snap.AkaByType,
-        };
     }
 
     /// <summary>
@@ -400,7 +366,7 @@ internal sealed class AutoPlayController : IDisposable
     private bool TryResolveNineTerminals(in HandSnapshot snap)
     {
         var actions = EmjBoardReader.ReadActionOptions();
-        int abort = FindOption(actions, "Nine");
+        int abort = FindOption(actions, EmjAction.NineTerminals);
         if (abort < 0)
             return false;
 
@@ -412,7 +378,7 @@ internal sealed class AutoPlayController : IDisposable
         }
 
         int kokushiShanten = ShantenCalculator.ThirteenOrphans(snap.Counts);
-        int pass = FindOption(actions, "Pass");
+        int pass = FindOption(actions, EmjAction.Pass);
         bool keepHand = kokushiShanten <= 2 && pass >= 0;
         int option = keepHand ? pass : abort;
 
@@ -455,7 +421,7 @@ internal sealed class AutoPlayController : IDisposable
                 bool meld = decision.Reason.StartsWith("pon", StringComparison.Ordinal);
                 Stats.Record(
                     win ? AutoActionKind.Ron : meld ? AutoActionKind.Meld : AutoActionKind.Pass,
-                    win ? "Called the win" : meld ? decision.Reason : "Passed a call");
+                    win ? Loc.T("act.win") : meld ? Loc.F("act.pon", Loc.Tile(lastDiscardTile)) : Loc.T("act.pass"));
             }
 
             actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // verify next tick; re-fire if still up
@@ -471,7 +437,7 @@ internal sealed class AutoPlayController : IDisposable
     /// </summary>
     private CallDecision MaybeUpgradeToPon(IReadOnlyList<ActionOption> options, CallDecision pass)
     {
-        int pon = FindOption(options, "Pon");
+        int pon = FindOption(options, EmjAction.Pon);
         if (pon < 0 || lastDiscardTile < 0)
             return pass;
 
@@ -481,7 +447,7 @@ internal sealed class AutoPlayController : IDisposable
         BoardSnapshot? board = EmjBoardReader.TryReadBoard();
         bool take = CallPolicy.ShouldPon(
             snap.Counts, snap.Melds, lastDiscardTile,
-            BuildEvalContext(snap, board), board?.AnyOpponentRiichi ?? false);
+            TableContext.BuildEvalContext(snap, board), board?.AnyOpponentRiichi ?? false);
 
         return take ? new CallDecision(pon, $"pon {Tiles.Name(lastDiscardTile)}") : pass;
     }
@@ -497,15 +463,15 @@ internal sealed class AutoPlayController : IDisposable
         if (options.Count == 0)
             return new CallDecision(-1, "no options readable");
 
-        int ron = FindOption(options, "Ron");
+        int ron = FindOption(options, EmjAction.Ron);
         if (ron >= 0)
             return new CallDecision(ron, "accept Ron");
 
-        int tsumo = FindOption(options, "Tsumo");
+        int tsumo = FindOption(options, EmjAction.Tsumo);
         if (tsumo >= 0)
             return new CallDecision(tsumo, "accept Tsumo");
 
-        int pass = FindOption(options, "Pass");
+        int pass = FindOption(options, EmjAction.Pass);
         if (pass >= 0)
             return new CallDecision(pass, "pass");
 
@@ -531,12 +497,11 @@ internal sealed class AutoPlayController : IDisposable
             : $"options: bot would not act ({d.Reason}).");
     }
 
-    private static int FindOption(IReadOnlyList<ActionOption> options, string substring)
+    /// <summary>The fire value of the button doing <paramref name="action"/>, in any recognized client language, or -1.</summary>
+    private static int FindOption(IReadOnlyList<ActionOption> options, EmjAction action)
     {
-        foreach (ActionOption o in options)
-            if (o.Label.Contains(substring, StringComparison.OrdinalIgnoreCase))
-                return o.Option;
-        return -1;
+        int index = EmjStrings.IndexOf(options.Select(o => o.Label).ToList(), action);
+        return index >= 0 ? options[index].Option : -1;
     }
 
     private static string Labels(IReadOnlyList<ActionOption> options)

@@ -19,7 +19,19 @@ public sealed record TurnInput
     public EvalOptions Options { get; init; } = EvalOptions.Default;
 }
 
-public readonly record struct TurnDecision(int Discard, bool DeclareRiichi, string Reason);
+/// <summary>Why the turn policy chose its discard, for display without parsing <see cref="TurnDecision.Reason"/>.</summary>
+public enum TurnReason
+{
+    None,
+    BestValue,
+    FoldVsRiichi,
+    FuritenDodge,
+}
+
+public readonly record struct TurnDecision(int Discard, bool DeclareRiichi, string Reason)
+{
+    public TurnReason Kind { get; init; }
+}
 
 /// <summary>
 /// The discard-turn policy shared by the live bot and the offline simulator: value-ranked discards,
@@ -29,11 +41,15 @@ public readonly record struct TurnDecision(int Discard, bool DeclareRiichi, stri
 /// </summary>
 public static class TurnPolicy
 {
-    public static TurnDecision Decide(TurnInput input)
+    public static TurnDecision Decide(TurnInput input) => Decide(input, out _);
+
+    /// <summary>Same as <see cref="Decide(TurnInput)"/>, also returning the value-ranked discards it chose from (best first).</summary>
+    public static TurnDecision Decide(TurnInput input, out IReadOnlyList<ScoredDiscard> rankedDiscards)
     {
         List<ScoredDiscard> ranked = DiscardEvaluator.Rank(input.Counts14, input.Melds, input.Seen, input.Context, input.Options);
+        rankedDiscards = ranked;
         if (ranked.Count == 0)
-            return new TurnDecision(-1, false, "no legal discard");
+            return new TurnDecision(-1, false, "no legal discard") { Kind = TurnReason.None };
 
         DiscardOption best = ranked[0].Option;
 
@@ -52,7 +68,7 @@ public static class TurnPolicy
                 }
             }
 
-            return new TurnDecision(safest.Tile, false, $"fold vs riichi (danger {safestDanger})");
+            return new TurnDecision(safest.Tile, false, $"fold vs riichi (danger {safestDanger})") { Kind = TurnReason.FoldVsRiichi };
         }
 
         if (best.Shanten == 0 && IsFuriten(best, input.OwnRiver))
@@ -64,21 +80,21 @@ public static class TurnPolicy
                 if (!IsFuriten(scored.Option, input.OwnRiver))
                 {
                     best = scored.Option;
-                    return Finish(best, input, $"furiten dodge (cut {Tiles.Name(best.Tile)})");
+                    return Finish(best, input, $"furiten dodge (cut {Tiles.Name(best.Tile)})", TurnReason.FuritenDodge);
                 }
             }
         }
 
-        return Finish(best, input, "best value");
+        return Finish(best, input, "best value", TurnReason.BestValue);
     }
 
-    private static TurnDecision Finish(in DiscardOption choice, TurnInput input, string reason)
+    private static TurnDecision Finish(in DiscardOption choice, TurnInput input, string reason, TurnReason kind)
     {
         bool riichi = input.RiichiAvailable
                       && input.Context.Closed
                       && choice.Shanten == 0
                       && choice.UkeireCount > 0;
-        return new TurnDecision(choice.Tile, riichi, riichi ? $"{reason} + riichi" : reason);
+        return new TurnDecision(choice.Tile, riichi, riichi ? $"{reason} + riichi" : reason) { Kind = kind };
     }
 
     private static bool IsFuriten(in DiscardOption option, IReadOnlyList<int> ownRiver)

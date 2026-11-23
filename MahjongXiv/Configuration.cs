@@ -9,6 +9,14 @@ public enum PlayMode
     Auto,
 }
 
+/// <summary>Language of the plugin's own UI. Auto follows Dalamud's UI language (and the client language).</summary>
+public enum UiLanguage
+{
+    Auto,
+    English,
+    Japanese,
+}
+
 /// <summary>The shape the in-game discard highlight takes (see <c>SuggestionOverlay</c>).</summary>
 public enum HighlightStyle
 {
@@ -42,6 +50,9 @@ public sealed class Configuration : IPluginConfiguration
 
     public int Version { get; set; } = 1;
 
+    /// <summary>Language of the plugin window, overlay and chat messages.</summary>
+    public UiLanguage Language { get; set; } = UiLanguage.Auto;
+
     /// <summary>Auto plays the hand for you; Suggest only shows the recommended move and sends no inputs.</summary>
     public PlayMode Mode { get; set; } = PlayMode.Auto;
 
@@ -67,6 +78,18 @@ public sealed class Configuration : IPluginConfiguration
     public int CallDelayMaxMs { get; set; } = 1200;
     public int ResultDelayMinMs { get; set; } = 1500;
     public int ResultDelayMaxMs { get; set; } = 2800;
+
+    /// <summary>Restore the shipped auto-play delay ranges.</summary>
+    public void ResetDelays()
+    {
+        var defaults = new Configuration();
+        TurnDelayMinMs = defaults.TurnDelayMinMs;
+        TurnDelayMaxMs = defaults.TurnDelayMaxMs;
+        CallDelayMinMs = defaults.CallDelayMinMs;
+        CallDelayMaxMs = defaults.CallDelayMaxMs;
+        ResultDelayMinMs = defaults.ResultDelayMinMs;
+        ResultDelayMaxMs = defaults.ResultDelayMaxMs;
+    }
 
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 

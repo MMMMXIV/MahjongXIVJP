@@ -319,7 +319,7 @@ internal static unsafe class EmjBoardReader
     /// <summary>
     /// Parse a seat's info panel from its text nodes: the wind is the one compass word, the score
     /// the largest digit-only run (the panel duplicates it with a leading zero), the riichi state a
-    /// "Riichi" badge, and the name the first remaining non-badge text.
+    /// "Riichi"/"リーチ" badge, and the name the first remaining non-badge text.
     /// </summary>
     private static PlayerPanel ReadPanel(AtkUnitBase* addon, uint id)
     {
@@ -347,7 +347,7 @@ internal static unsafe class EmjBoardReader
                 if (int.TryParse(text, out int value) && value > score)
                     score = value;
             }
-            else if (name.Length == 0 && !text.Contains('!') && !text.StartsWith('+') && !text.StartsWith('-'))
+            else if (name.Length == 0 && !EmjStrings.IsBadge(text))
             {
                 name = text;
             }

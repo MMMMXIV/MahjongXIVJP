@@ -1,3 +1,5 @@
+using MahjongXiv.Localization;
+
 namespace MahjongXiv.Core.Game;
 
 public enum TableKind
@@ -43,7 +45,7 @@ internal static class EmjTableGuard
     {
         TableKind.Casual => null,
         TableKind.Ranked when Plugin.Cfg.AllowRankedAutoPlay => null,
-        TableKind.Ranked => "Ranked table — auto-play is off here (enable it under /mj config). Suggestions still work.",
-        _ => "Not a recognized casual table — auto-play is disabled here. Suggestions still work.",
+        TableKind.Ranked => Loc.T("block.ranked"),
+        _ => Loc.T("block.unknown"),
     };
 }

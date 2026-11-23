@@ -1,5 +1,6 @@
 using MahjongXiv.Core;
 using MahjongXiv.Core.Game;
+using MahjongXiv.Localization;
 using MahjongXiv.Windows;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -31,6 +32,9 @@ public sealed class Plugin : IDalamudPlugin
 
     internal AutoPlayController AutoPlay { get; }
 
+    /// <summary>The one throttled live-board read shared by the window and the overlay.</summary>
+    internal LiveBoard Board { get; } = new();
+
     private readonly MainWindow mainWindow;
     private readonly EmjCaptureLogger captureLogger;
     private readonly EmjAgentProbe agentProbe = new();
@@ -55,11 +59,11 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(MjConstants.PrimaryCommand, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the window. /mj auto | suggest [on|off]. Debug: dump|tree|board|melds|capture|probe|diag|events|buttons|click-discard.",
+            HelpMessage = Loc.T("cmd.help"),
         });
         CommandManager.AddHandler(MjConstants.AliasCommand, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Alias for /mj.",
+            HelpMessage = Loc.T("cmd.alias"),
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;

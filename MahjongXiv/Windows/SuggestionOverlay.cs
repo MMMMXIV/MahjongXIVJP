@@ -9,13 +9,12 @@ namespace MahjongXiv.Windows;
 /// In Suggest mode, paints a marker over the recommended discard tile directly on the live Doman
 /// Mahjong board, so the player can read the move without looking at the cockpit window. Read-only:
 /// it only draws on ImGui's foreground layer and never fires a game input, matching Suggest mode's
-/// no-input contract. Reuses a <see cref="LiveBoard"/> so the highlighted tile is exactly the one the
-/// cockpit's <see cref="SuggestPanel"/> recommends.
+/// no-input contract. Shares the plugin's <see cref="LiveBoard"/> so the highlighted tile is exactly the one
+/// the main window recommends.
 /// </summary>
 internal sealed class SuggestionOverlay
 {
     private readonly Plugin plugin;
-    private readonly LiveBoard board = new();
 
     public SuggestionOverlay(Plugin plugin) => this.plugin = plugin;
 
@@ -24,12 +23,14 @@ internal sealed class SuggestionOverlay
         if (!plugin.AutoPlay.Running || plugin.AutoPlay.Mode != PlayMode.Suggest || !Plugin.Cfg.HighlightSuggestedTile)
             return;
 
+        LiveBoard board = plugin.Board;
         board.Refresh();
 
         if (!board.Present || board.Phase != BoardPhase.OurTurn || board.HandComplete || board.BestDiscard < 0)
             return;
 
-        int slot = PreferredSlot(board.Snapshot, board.BestDiscard);
+        // In riichi the drawn tile (slot 13) is the only legal cut, even if an identical tile sits in the hand.
+        int slot = board.InRiichi ? 13 : PreferredSlot(board.Snapshot, board.BestDiscard);
         if (slot < 0 || !EmjBoardReader.TryGetHandSlotRect(slot, out Vector2 min, out Vector2 max))
             return;
 
