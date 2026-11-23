@@ -1,4 +1,3 @@
-using System.Text;
 using MahjongXiv.Core;
 using MahjongXiv.Core.Game;
 using MahjongXiv.Engine;
@@ -26,6 +25,7 @@ internal sealed class LiveBoard
     private const int UnreadableGraceMs = 1500; // ignore transient decode gaps (deals, animations)
     private const int ReadIntervalMs = 300;
     private readonly HandAnalyzer analyzer = new();
+    private readonly DecisionWorker worker = new();
     private long lastTick;
     private long unreadableSince;
     private string? policyKey;
@@ -145,10 +145,20 @@ internal sealed class LiveBoard
         bool riichiAvailable = EmjBoardReader.ReadActionOptions().Any(o => EmjStrings.Classify(o.Label) == EmjAction.Riichi);
         TurnInput input = TableContext.BuildTurnInput(snap, board, riichiAvailable);
 
-        string key = KeyFor(input);
+        string key = DecisionWorker.KeyFor(input);
         if (key != policyKey || Decision is null)
         {
-            Decision = TurnPolicy.Decide(input, out IReadOnlyList<ScoredDiscard> ranked);
+            if (!worker.TryGet(key, input, out TurnDecision decision, out IReadOnlyList<ScoredDiscard> ranked))
+            {
+                // Still computing off-thread: show plain efficiency meanwhile.
+                Decision = null;
+                RankedDiscards = Array.Empty<ScoredDiscard>();
+                if (Report.Discards.Count > 0)
+                    BestDiscard = Report.Discards[0].Tile;
+                return;
+            }
+
+            Decision = decision;
             RankedDiscards = ranked;
             policyKey = key;
         }
@@ -161,33 +171,6 @@ internal sealed class LiveBoard
         Decision = null;
         RankedDiscards = Array.Empty<ScoredDiscard>();
         policyKey = null;
-    }
-
-    /// <summary>A compact fingerprint of everything the policy reads, so an unchanged table is not re-solved every refresh.</summary>
-    private static string KeyFor(TurnInput input)
-    {
-        var sb = new StringBuilder(160);
-        foreach (int c in input.Counts14)
-            sb.Append((char)('0' + c));
-        sb.Append('|');
-        if (input.Seen is { } seen)
-            foreach (int c in seen)
-                sb.Append((char)('0' + c));
-        sb.Append('|').Append(input.Melds.Count).Append('|').Append(input.Context.SeatWind).Append(input.RiichiAvailable ? 'R' : '-');
-        if (input.Context.DoraIndicators is { } dora)
-            foreach (int t in dora)
-                sb.Append(',').Append(t);
-        if (input.Context.AkaByType is { } aka)
-            foreach (int a in aka)
-                sb.Append((char)('0' + a));
-        sb.Append('|');
-        foreach (IReadOnlyList<int> river in input.ThreatRivers)
-            sb.Append(river.Count).Append(';');
-        sb.Append('|').Append(input.OwnRiver.Count).Append(input.Options.AnyStrategic ? 'S' : 'L');
-        if (input.Game is { } game)
-            foreach (int score in game.Scores)
-                sb.Append(',').Append(score);
-        return sb.ToString();
     }
 
     private static BoardPhase MapPhase(bool present, int state)

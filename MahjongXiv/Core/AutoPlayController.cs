@@ -42,6 +42,7 @@ internal sealed class AutoPlayController : IDisposable
     private const int StuckWarnMs = 12000;
 
     private readonly Random rng = new();
+    private readonly DecisionWorker worker = new();
 
     private bool running;
     private bool hooked;
@@ -50,6 +51,7 @@ internal sealed class AutoPlayController : IDisposable
     private long actAtTick;
     private bool acted;
     private bool riichiFired;
+    private int riichiTile = -1; // the tile chosen with the riichi call; cut it once the prompt closes
     private int popupAttempts;
     private bool addonAbsent = true;
     private long graceUntil;
@@ -191,6 +193,7 @@ internal sealed class AutoPlayController : IDisposable
         {
             acted = false;
             riichiFired = false;
+            riichiTile = -1;
             popupAttempts = 0;
             actAtTick = now + DelayFor(state);
             stateSince = now;
@@ -364,10 +367,22 @@ internal sealed class AutoPlayController : IDisposable
             return;
         }
 
+        // After declaring riichi, cut exactly the tile the declaration was decided with.
+        if (riichiFired && riichiTile >= 0)
+        {
+            if (EmjActuator.DiscardTile(riichiTile))
+            {
+                acted = true;
+                Stats.Record(AutoActionKind.Discard, Loc.F("act.discard", Loc.Tile(riichiTile)));
+            }
+            return;
+        }
+
         int riichiOption = FindOption(EmjBoardReader.ReadActionOptions(), EmjAction.Riichi);
 
-        TurnDecision decision = TurnPolicy.Decide(
-            TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired));
+        TurnInput input = TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired);
+        if (!worker.TryGet(DecisionWorker.KeyFor(input), input, out TurnDecision decision, out _))
+            return; // computing off the framework thread; act on a later tick
 
         if (decision.Discard < 0)
             return;
@@ -379,6 +394,7 @@ internal sealed class AutoPlayController : IDisposable
         {
             // The riichi tile is cut on the next eligible tick, once the prompt has closed.
             riichiFired = true;
+            riichiTile = decision.Discard;
             actAtTick = Environment.TickCount64 + RiichiFollowupDelayMs;
             MjLog.Info($"turn: riichi declared -> [11, {riichiOption}]; cutting {Tiles.Name(decision.Discard)} next tick.");
             Stats.Record(AutoActionKind.Riichi, Loc.T("act.riichi"));
