@@ -43,6 +43,9 @@ public enum TurnReason
 public readonly record struct TurnDecision(int Discard, bool DeclareRiichi, string Reason)
 {
     public TurnReason Kind { get; init; }
+
+    /// <summary>The model's chance of winning the hand with this choice at a riichi/dama judgement, or -1 (diagnostics).</summary>
+    public double WinChance { get; init; } = -1;
 }
 
 /// <summary>

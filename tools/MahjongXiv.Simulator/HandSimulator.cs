@@ -106,7 +106,31 @@ internal sealed record HandOutcome
 /// </summary>
 internal static class HandSimulator
 {
+    [ThreadStatic] private static int calibSeat;
+    [ThreadStatic] private static bool calibRiichi;
+    [ThreadStatic] private static double calibPredicted;
+
+    private static void Calibrate(SimStats stats, int winner)
+    {
+        if (calibSeat < 0)
+            return;
+        int k = calibRiichi ? 1 : 0;
+        stats.CalibCount[k]++;
+        stats.CalibPredicted[k] += calibPredicted;
+        if (winner == calibSeat)
+            stats.CalibWins[k]++;
+        calibSeat = -1;
+    }
+
     public static HandOutcome Play(HandSetup setup, Agent[] agents, Random rng, SimRules rules, SimStats stats)
+    {
+        calibSeat = -1;
+        HandOutcome outcome = PlayHand(setup, agents, rng, rules, stats);
+        Calibrate(stats, outcome.Winner);
+        return outcome;
+    }
+
+    private static HandOutcome PlayHand(HandSetup setup, Agent[] agents, Random rng, SimRules rules, SimStats stats)
     {
         int dealer = setup.Dealer;
         var wall = new Wall(rng);
@@ -243,6 +267,12 @@ internal static class HandSimulator
         TurnDecision decision = agent.Turn(input);
         long ticks = Stopwatch.GetTimestamp() - start;
         stats.RecordDecision(ticks);
+        if (decision.WinChance >= 0 && calibSeat < 0)
+        {
+            calibSeat = seat;
+            calibRiichi = decision.DeclareRiichi;
+            calibPredicted = decision.WinChance;
+        }
         return decision;
     }
 
