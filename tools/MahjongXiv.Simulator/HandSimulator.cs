@@ -1,6 +1,30 @@
+using System.Diagnostics;
 using MahjongXiv.Engine;
 
 namespace MahjongXiv.Simulator;
+
+/// <summary>One seat's decision makers: the discard turn and the pon decision.</summary>
+internal sealed record Agent(string Name, Func<TurnInput, TurnDecision> Turn, Func<CallInput, bool> Pon)
+{
+    /// <summary>When set, the time spent in <see cref="Turn"/> is accumulated into the stats under this seat.</summary>
+    public bool Timed { get; init; }
+}
+
+/// <summary>Rules of the simulated table that are not settled for Doman Mahjong.</summary>
+internal sealed record SimRules
+{
+    public static readonly SimRules Default = new();
+
+    /// <summary>1 = east-only (quick match), 2 = east+south (full match).</summary>
+    public int Rounds { get; init; } = 2;
+
+    public ScoringOptions Scoring { get; init; } = ScoringOptions.Default;
+
+    public int StartScore { get; init; } = 25000;
+
+    /// <summary>Placement bonus (uma) used for the rank-point metric only, 1st..4th.</summary>
+    public int[] Uma { get; init; } = [30000, 10000, -10000, -30000];
+}
 
 internal sealed class SimPlayer
 {
@@ -11,6 +35,10 @@ internal sealed class SimPlayer
     public int MeldAka;
     public bool Riichi;
     public bool Ippatsu;
+    public int RiichiDiscardIndex = -1;
+
+    /// <summary>Passed a winning tile this go-around (no yaku): ron is off until our next discard.</summary>
+    public bool TempFuriten;
 
     public void Add(int tileId)
     {
@@ -51,6 +79,12 @@ internal sealed class SimPlayer
     }
 }
 
+/// <summary>The table entering a hand.</summary>
+internal sealed record HandSetup(int Dealer, int Honba, int Sticks, int[] Scores, int HandNumber, int TotalHands, ScoringOptions Scoring)
+{
+    public int RoundWind => Math.Min(3, HandNumber / 4);
+}
+
 internal sealed record HandOutcome
 {
     public int Winner { get; init; } = -1;
@@ -65,15 +99,16 @@ internal sealed record HandOutcome
 }
 
 /// <summary>
-/// Plays one hand under the bot's ruleset: riichi with ippatsu/ura, haitei/houtei, river furiten,
-/// pon calls gated by <see cref="CallPolicy"/> (chi/kan never taken, mirroring the live bot), and
-/// exhaustive-draw tenpai payments. Every seat runs the supplied policy with perfect seen-tile
-/// tracking of public information.
+/// Plays one hand: riichi (needs 1000 points and four live tiles) with ippatsu/ura, haitei/houtei,
+/// river, riichi and temporary furiten, pon calls through each seat's agent (chi/kan are never
+/// taken, mirroring the live bot), honba and riichi sticks, and exhaustive-draw tenpai payments.
+/// Every seat sees the public information exactly.
 /// </summary>
 internal static class HandSimulator
 {
-    public static HandOutcome Play(int dealer, Func<TurnInput, TurnDecision>[] policies, Random rng, int stickPot)
+    public static HandOutcome Play(HandSetup setup, Agent[] agents, Random rng, SimRules rules, SimStats stats)
     {
+        int dealer = setup.Dealer;
         var wall = new Wall(rng);
         var players = new SimPlayer[4];
         for (int s = 0; s < 4; s++)
@@ -83,9 +118,17 @@ internal static class HandSimulator
                 players[(dealer + s) % 4].Add(wall.Draw());
 
         var deltas = new int[4];
-        int pot = stickPot;
+        int pot = setup.Sticks;
         var declared = new bool[4];
         int turn = dealer;
+
+        int[] Scores()
+        {
+            var now = new int[4];
+            for (int s = 0; s < 4; s++)
+                now[s] = setup.Scores[s] + deltas[s];
+            return now;
+        }
 
         while (wall.HasDraws)
         {
@@ -96,14 +139,16 @@ internal static class HandSimulator
 
             if (ShantenCalculator.Calculate(p.Counts, p.Melds.Count) == ShantenCalculator.Complete)
             {
-                WinResult? result = YakuCalculator.Evaluate(
-                    p.Counts, p.Melds, WinCtx(p, turn, dealer, TileId.Type(drawId), tsumo: true, lastTile: haitei, wall, extraAka: 0));
-                if (result is { HasYaku: true })
-                    return ScoreTsumo(turn, dealer, result, deltas, pot, declared, players);
+                HandScore? score = ScoreCalculator.Score(
+                    p.Counts, p.Melds, WinCtx(p, turn, setup, TileId.Type(drawId), tsumo: true, lastTile: haitei, wall, extraAka: 0),
+                    turn == dealer, setup.Scoring);
+                if (score is not null)
+                    return Settle(score, turn, -1, setup, deltas, pot, declared, rules);
             }
 
             // The ippatsu window closes with this draw (the tsumo check above still counted it).
             p.Ippatsu = false;
+            p.TempFuriten = false;
 
             int discardType;
             if (p.Riichi)
@@ -112,18 +157,20 @@ internal static class HandSimulator
             }
             else
             {
-                TurnDecision decision = policies[turn](BuildInput(players, turn, dealer, wall));
-                if (decision.Discard < 0)
+                bool riichiLegal = p.Melds.Count == 0 && setup.Scores[turn] + deltas[turn] >= 1000 && wall.Remaining >= 4;
+                TurnDecision decision = Decide(agents, turn, BuildInput(players, turn, setup, wall, Scores(), pot, riichiLegal), stats);
+                if (decision.Discard < 0 || p.Counts[decision.Discard] == 0)
                 {
                     discardType = TileId.Type(drawId); // defensive fallback; should not happen
                 }
                 else
                 {
                     discardType = decision.Discard;
-                    if (decision.DeclareRiichi)
+                    if (decision.DeclareRiichi && riichiLegal)
                     {
                         p.Riichi = true;
                         p.Ippatsu = true;
+                        p.RiichiDiscardIndex = p.River.Count;
                         declared[turn] = true;
                         deltas[turn] -= 1000;
                         pot++;
@@ -145,21 +192,25 @@ internal static class HandSimulator
 
                     opp.Counts[discardType]++;
                     bool complete = ShantenCalculator.Calculate(opp.Counts, opp.Melds.Count) == ShantenCalculator.Complete;
-                    if (complete && !IsFuriten(opp, discardType))
+                    if (complete && !opp.TempFuriten && !IsRiverFuriten(opp, discardType))
                     {
-                        WinResult? result = YakuCalculator.Evaluate(
-                            opp.Counts, opp.Melds, WinCtx(opp, seat, dealer, discardType, tsumo: false, lastTile: !wall.HasDraws, wall, extraAka: akaLeft ? 1 : 0));
-                        if (result is { HasYaku: true })
-                        {
-                            opp.Counts[discardType]--;
-                            return ScoreRon(seat, turn, dealer, result, deltas, pot, declared);
-                        }
-                    }
+                        HandScore? score = ScoreCalculator.Score(
+                            opp.Counts, opp.Melds,
+                            WinCtx(opp, seat, setup, discardType, tsumo: false, lastTile: !wall.HasDraws, wall, extraAka: akaLeft ? 1 : 0),
+                            seat == dealer, setup.Scoring);
+                        opp.Counts[discardType]--;
+                        if (score is not null)
+                            return Settle(score, seat, turn, setup, deltas, pot, declared, rules);
 
-                    opp.Counts[discardType]--;
+                        opp.TempFuriten = true; // passed a winning tile (no yaku)
+                    }
+                    else
+                    {
+                        opp.Counts[discardType]--;
+                    }
                 }
 
-                int caller = FindPonCaller(players, turn, dealer, discardType, wall);
+                int caller = FindPonCaller(agents, players, turn, setup, wall, discardType, Scores(), pot);
                 if (caller < 0)
                     break;
 
@@ -170,9 +221,10 @@ internal static class HandSimulator
 
                 turn = caller;
                 p = players[turn];
+                p.TempFuriten = false;
 
-                TurnDecision after = policies[turn](BuildInput(players, turn, dealer, wall));
-                discardType = after.Discard >= 0 ? after.Discard : FirstHeld(p);
+                TurnDecision after = Decide(agents, turn, BuildInput(players, turn, setup, wall, Scores(), pot, riichiLegal: false), stats);
+                discardType = after.Discard >= 0 && p.Counts[after.Discard] > 0 ? after.Discard : FirstHeld(p);
             }
 
             turn = (turn + 1) % 4;
@@ -181,8 +233,21 @@ internal static class HandSimulator
         return ScoreExhaustiveDraw(dealer, deltas, pot, declared, players);
     }
 
-    /// <summary>At most one seat can hold two copies of a discarded tile; returns it if its policy pons.</summary>
-    private static int FindPonCaller(SimPlayer[] players, int discarder, int dealer, int discardType, Wall wall)
+    private static TurnDecision Decide(Agent[] agents, int seat, TurnInput input, SimStats stats)
+    {
+        Agent agent = agents[seat];
+        if (!agent.Timed)
+            return agent.Turn(input);
+
+        long start = Stopwatch.GetTimestamp();
+        TurnDecision decision = agent.Turn(input);
+        long ticks = Stopwatch.GetTimestamp() - start;
+        stats.RecordDecision(ticks);
+        return decision;
+    }
+
+    /// <summary>At most one seat can hold two copies of a discarded tile; returns it if its agent pons.</summary>
+    private static int FindPonCaller(Agent[] agents, SimPlayer[] players, int discarder, HandSetup setup, Wall wall, int discardType, int[] scores, int pot)
     {
         for (int k = 1; k < 4; k++)
         {
@@ -196,7 +261,21 @@ internal static class HandSimulator
                 if (s != seat && players[s].Riichi)
                     anyRiichi = true;
 
-            if (CallPolicy.ShouldPon(opp.Counts, opp.Melds, discardType, EvalCtx(opp, seat, dealer, wall), anyRiichi))
+            TurnInput view = BuildInput(players, seat, setup, wall, scores, pot, riichiLegal: false);
+            var input = new CallInput
+            {
+                Counts13 = opp.Counts,
+                Melds = opp.Melds,
+                Tile = discardType,
+                Context = view.Context,
+                OpponentRiichi = anyRiichi,
+                Seen = view.Seen,
+                Opponents = view.Opponents,
+                Game = view.Game,
+                WallRemaining = view.WallRemaining,
+            };
+
+            if (agents[seat].Pon(input))
                 return seat;
         }
 
@@ -211,18 +290,19 @@ internal static class HandSimulator
         return 0;
     }
 
-    private static EvalContext EvalCtx(SimPlayer p, int seat, int dealer, Wall wall)
+    private static EvalContext EvalCtx(SimPlayer p, int seat, HandSetup setup, Wall wall, ScoringOptions scoring)
         => new()
         {
-            SeatWind = (seat - dealer + 4) % 4,
-            RoundWind = 0,
-            Dealer = seat == dealer,
+            SeatWind = (seat - setup.Dealer + 4) % 4,
+            RoundWind = setup.RoundWind,
+            Dealer = seat == setup.Dealer,
             Closed = p.Melds.Count == 0,
             DoraIndicators = new[] { wall.DoraIndicatorType },
             AkaByType = p.AkaByType,
+            Scoring = scoring,
         };
 
-    private static TurnInput BuildInput(SimPlayer[] players, int turn, int dealer, Wall wall)
+    private static TurnInput BuildInput(SimPlayer[] players, int turn, HandSetup setup, Wall wall, int[] scores, int pot, bool riichiLegal)
     {
         SimPlayer p = players[turn];
 
@@ -240,23 +320,50 @@ internal static class HandSimulator
         seen[wall.DoraIndicatorType] = Math.Min(4, seen[wall.DoraIndicatorType] + 1);
 
         var threats = new List<IReadOnlyList<int>>();
-        for (int s = 0; s < 4; s++)
-            if (s != turn && players[s].Riichi)
-                threats.Add(players[s].River);
+        var opponents = new List<OpponentView>(3);
+        for (int k = 1; k < 4; k++)
+        {
+            int s = (turn + k) % 4;
+            SimPlayer o = players[s];
+            if (o.Riichi)
+                threats.Add(o.River);
+            opponents.Add(new OpponentView
+            {
+                Seat = s,
+                River = o.River,
+                Riichi = o.Riichi,
+                RiichiDiscardIndex = o.RiichiDiscardIndex,
+                Melds = o.Melds,
+                IsDealer = s == setup.Dealer,
+            });
+        }
 
         return new TurnInput
         {
             Counts14 = p.Counts,
             Melds = p.Melds,
             Seen = seen,
-            Context = EvalCtx(p, turn, dealer, wall),
+            Context = EvalCtx(p, turn, setup, wall, setup.Scoring),
             ThreatRivers = threats,
             OwnRiver = p.River,
+            RiichiAvailable = riichiLegal,
+            Opponents = opponents,
+            WallRemaining = wall.Remaining,
+            Game = new GameState
+            {
+                Scores = scores,
+                SelfSeat = turn,
+                DealerSeat = setup.Dealer,
+                HandNumber = setup.HandNumber,
+                TotalHands = setup.TotalHands,
+                Honba = setup.Honba,
+                RiichiSticks = pot,
+            },
         };
     }
 
     private static WinContext WinCtx(
-        SimPlayer p, int seat, int dealer, int winTile, bool tsumo, bool lastTile, Wall wall, int extraAka)
+        SimPlayer p, int seat, HandSetup setup, int winTile, bool tsumo, bool lastTile, Wall wall, int extraAka)
         => new()
         {
             WinTile = winTile,
@@ -265,15 +372,15 @@ internal static class HandSimulator
             Ippatsu = p.Ippatsu,
             Haitei = tsumo && lastTile,
             Houtei = !tsumo && lastTile,
-            SeatWind = (seat - dealer + 4) % 4,
-            RoundWind = 0,
+            SeatWind = (seat - setup.Dealer + 4) % 4,
+            RoundWind = setup.RoundWind,
             AkaCount = p.AkaByType.Sum() + p.MeldAka + extraAka,
             DoraIndicators = new[] { wall.DoraIndicatorType },
             UraIndicators = new[] { wall.UraIndicatorType },
         };
 
     /// <summary>River furiten: ron is dead while any tile of the wait set sits in the player's own river.</summary>
-    private static bool IsFuriten(SimPlayer p, int justAdded)
+    private static bool IsRiverFuriten(SimPlayer p, int justAdded)
     {
         p.Counts[justAdded]--;
         try
@@ -297,51 +404,23 @@ internal static class HandSimulator
         }
     }
 
-    private static HandOutcome ScoreTsumo(
-        int winner, int dealer, WinResult result, int[] deltas, int pot, bool[] declared, SimPlayer[] players)
+    private static HandOutcome Settle(
+        HandScore score, int winner, int discarder, HandSetup setup, int[] deltas, int pot, bool[] declared, SimRules rules)
     {
-        int points = DomanScoring.Points(result.TotalHan, winner == dealer, result.IsYakuman);
-
+        int[] pay = ScoreCalculator.Payments(score, winner, setup.Dealer, discarder, setup.Honba, pot, setup.Scoring);
         for (int s = 0; s < 4; s++)
-        {
-            if (s == winner)
-                continue;
-            int share = winner == dealer
-                ? RoundUp100(points / 3)
-                : s == dealer ? RoundUp100(points / 2) : RoundUp100(points / 4);
-            deltas[s] -= share;
-            deltas[winner] += share;
-        }
+            deltas[s] += pay[s];
 
-        deltas[winner] += pot * 1000;
-        return new HandOutcome
-        {
-            Winner = winner,
-            Deltas = deltas,
-            DealerKeeps = winner == dealer,
-            SticksLeft = 0,
-            RiichiDeclared = declared,
-            WinHan = result.TotalHan,
-            WinPoints = points,
-        };
-    }
-
-    private static HandOutcome ScoreRon(
-        int winner, int discarder, int dealer, WinResult result, int[] deltas, int pot, bool[] declared)
-    {
-        int points = DomanScoring.Points(result.TotalHan, winner == dealer, result.IsYakuman);
-        deltas[winner] += points + pot * 1000;
-        deltas[discarder] -= points;
         return new HandOutcome
         {
             Winner = winner,
             DealIn = discarder,
             Deltas = deltas,
-            DealerKeeps = winner == dealer,
+            DealerKeeps = winner == setup.Dealer,
             SticksLeft = 0,
             RiichiDeclared = declared,
-            WinHan = result.TotalHan,
-            WinPoints = points,
+            WinHan = score.Han,
+            WinPoints = score.Points,
         };
     }
 
@@ -373,6 +452,4 @@ internal static class HandSimulator
             RiichiDeclared = declared,
         };
     }
-
-    private static int RoundUp100(int points) => (points + 99) / 100 * 100;
 }

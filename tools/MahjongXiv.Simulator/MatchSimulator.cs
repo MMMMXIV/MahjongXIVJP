@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MahjongXiv.Engine;
 
 namespace MahjongXiv.Simulator;
@@ -11,11 +12,30 @@ internal sealed class SimStats
     public long WinPointsTotal;
     public long WinHanTotal;
     public readonly int[] Wins = new int[4];
+    public readonly long[] WinPoints = new long[4];
     public readonly int[] DealIns = new int[4];
+    public readonly long[] DealInPoints = new long[4];
     public readonly int[] Riichis = new int[4];
     public readonly int[] PlacementSum = new int[4];
+    public readonly int[,] PlaceCounts = new int[4, 4];
     public readonly long[] ScoreSum = new long[4];
     public int Matches;
+
+    // Decision timing of the timed agent.
+    public long Decisions;
+    public long DecisionTicks;
+    public long MaxDecisionTicks;
+    public readonly long[] DecisionBuckets = new long[8]; // <1ms, <2, <5, <10, <20, <50, <100, >=100
+
+    public void RecordDecision(long ticks)
+    {
+        Decisions++;
+        DecisionTicks += ticks;
+        MaxDecisionTicks = Math.Max(MaxDecisionTicks, ticks);
+        double ms = ticks * 1000.0 / Stopwatch.Frequency;
+        int b = ms < 1 ? 0 : ms < 2 ? 1 : ms < 5 ? 2 : ms < 10 ? 3 : ms < 20 ? 4 : ms < 50 ? 5 : ms < 100 ? 6 : 7;
+        DecisionBuckets[b]++;
+    }
 
     public void Add(SimStats other)
     {
@@ -26,13 +46,22 @@ internal sealed class SimStats
         WinPointsTotal += other.WinPointsTotal;
         WinHanTotal += other.WinHanTotal;
         Matches += other.Matches;
+        Decisions += other.Decisions;
+        DecisionTicks += other.DecisionTicks;
+        MaxDecisionTicks = Math.Max(MaxDecisionTicks, other.MaxDecisionTicks);
+        for (int b = 0; b < DecisionBuckets.Length; b++)
+            DecisionBuckets[b] += other.DecisionBuckets[b];
         for (int s = 0; s < 4; s++)
         {
             Wins[s] += other.Wins[s];
+            WinPoints[s] += other.WinPoints[s];
             DealIns[s] += other.DealIns[s];
+            DealInPoints[s] += other.DealInPoints[s];
             Riichis[s] += other.Riichis[s];
             PlacementSum[s] += other.PlacementSum[s];
             ScoreSum[s] += other.ScoreSum[s];
+            for (int p = 0; p < 4; p++)
+                PlaceCounts[s, p] += other.PlaceCounts[s, p];
         }
     }
 }
@@ -40,26 +69,32 @@ internal sealed class SimStats
 /// <summary>Final standing of one match, by seat.</summary>
 internal readonly record struct MatchResult(int[] Scores, int[] Places);
 
-/// <summary>An east-round match: dealer repeats on a dealer win or dealer tenpai draw, capped to bound runtime.</summary>
+/// <summary>
+/// A match of <see cref="SimRules.Rounds"/> rounds. The dealer repeats (with a honba) on a dealer
+/// win or a dealer-tenpai draw; a non-dealer win resets the honba. The match ends after the last
+/// dealer passes, or at once when someone drops below zero. Ties are broken by seat order from the
+/// first dealer. Not modelled: agari-yame, west-round extension, abortive draws, chi and kan.
+/// </summary>
 internal static class MatchSimulator
 {
-    public const int StartScore = 25000;
-    private const int MaxHands = 16;
-
-    public static MatchResult Play(Func<TurnInput, TurnDecision>[] policies, Random rng, SimStats stats)
+    public static MatchResult Play(Agent[] agents, Random rng, SimStats stats, SimRules rules)
     {
         var scores = new int[4];
-        Array.Fill(scores, StartScore);
+        Array.Fill(scores, rules.StartScore);
 
+        int totalHands = 4 * rules.Rounds;
+        int maxHands = totalHands * 4;
+        int handNumber = 0;
         int dealer = 0;
-        int dealerships = 1;
+        int honba = 0;
         int pot = 0;
-        int hands = 0;
+        int played = 0;
 
-        while (dealerships <= 4 && hands < MaxHands)
+        while (handNumber < totalHands && played < maxHands)
         {
-            HandOutcome outcome = HandSimulator.Play(dealer, policies, rng, pot);
-            hands++;
+            var setup = new HandSetup(dealer, honba, pot, (int[])scores.Clone(), handNumber, totalHands, rules.Scoring);
+            HandOutcome outcome = HandSimulator.Play(setup, agents, rng, rules, stats);
+            played++;
             stats.Hands++;
 
             for (int s = 0; s < 4; s++)
@@ -76,12 +111,14 @@ internal static class MatchSimulator
             else
             {
                 stats.Wins[outcome.Winner]++;
+                stats.WinPoints[outcome.Winner] += outcome.WinPoints;
                 stats.WinPointsTotal += outcome.WinPoints;
                 stats.WinHanTotal += outcome.WinHan;
                 if (outcome.DealIn >= 0)
                 {
                     stats.Rons++;
                     stats.DealIns[outcome.DealIn]++;
+                    stats.DealInPoints[outcome.DealIn] += outcome.WinPoints;
                 }
                 else
                 {
@@ -94,21 +131,30 @@ internal static class MatchSimulator
             if (scores.Any(s => s < 0))
                 break; // busted: the match ends immediately
 
-            if (!outcome.DealerKeeps)
+            if (outcome.DealerKeeps)
             {
+                honba++;
+            }
+            else
+            {
+                honba = outcome.ExhaustiveDraw ? honba + 1 : 0;
                 dealer = (dealer + 1) % 4;
-                dealerships++;
+                handNumber++;
             }
         }
 
+        // Riichi sticks left on the table at the end go to the top player.
         int[] bySeat = [0, 1, 2, 3];
-        Array.Sort(bySeat, (a, b) => scores[b].CompareTo(scores[a]));
+        Array.Sort(bySeat, (a, b) => scores[b] != scores[a] ? scores[b].CompareTo(scores[a]) : a.CompareTo(b));
+        scores[bySeat[0]] += pot * 1000;
+
         var places = new int[4];
         for (int place = 0; place < 4; place++)
             places[bySeat[place]] = place + 1;
         for (int s = 0; s < 4; s++)
         {
             stats.PlacementSum[s] += places[s];
+            stats.PlaceCounts[s, places[s] - 1]++;
             stats.ScoreSum[s] += scores[s];
         }
 

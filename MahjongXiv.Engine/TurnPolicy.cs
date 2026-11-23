@@ -16,6 +16,15 @@ public sealed record TurnInput
     /// <summary>Whether riichi can legally be declared this turn (button offered / wall and points allow).</summary>
     public bool RiichiAvailable { get; init; } = true;
 
+    /// <summary>Per-opponent view (river, riichi, melds, dealer). Null when the caller cannot provide it.</summary>
+    public IReadOnlyList<OpponentView>? Opponents { get; init; }
+
+    /// <summary>Scores, round and sticks for placement-aware decisions. Null when unknown.</summary>
+    public GameState? Game { get; init; }
+
+    /// <summary>Live-wall tiles still to be drawn by anyone, or -1 when unknown.</summary>
+    public int WallRemaining { get; init; } = -1;
+
     public EvalOptions Options { get; init; } = EvalOptions.Default;
 }
 
@@ -26,6 +35,9 @@ public enum TurnReason
     BestValue,
     FoldVsRiichi,
     FuritenDodge,
+    Push,
+    Fold,
+    Dama,
 }
 
 public readonly record struct TurnDecision(int Discard, bool DeclareRiichi, string Reason)
@@ -48,6 +60,16 @@ public static class TurnPolicy
     {
         List<ScoredDiscard> ranked = DiscardEvaluator.Rank(input.Counts14, input.Melds, input.Seen, input.Context, input.Options);
         rankedDiscards = ranked;
+        if (input.Options.AnyStrategic && ranked.Count > 0)
+            return StrategicPolicy.Decide(input, ranked);
+        return Legacy(input, ranked);
+    }
+
+    /// <summary>The shipped decision over an already-ranked list.</summary>
+    internal static TurnDecision Legacy(TurnInput input, List<ScoredDiscard> ranked)
+    {
+        if (ranked.Count == 0)
+            return new TurnDecision(-1, false, "no legal discard") { Kind = TurnReason.None };
         if (ranked.Count == 0)
             return new TurnDecision(-1, false, "no legal discard") { Kind = TurnReason.None };
 
@@ -88,7 +110,7 @@ public static class TurnPolicy
         return Finish(best, input, "best value", TurnReason.BestValue);
     }
 
-    private static TurnDecision Finish(in DiscardOption choice, TurnInput input, string reason, TurnReason kind)
+    internal static TurnDecision Finish(in DiscardOption choice, TurnInput input, string reason, TurnReason kind)
     {
         bool riichi = input.RiichiAvailable
                       && input.Context.Closed
@@ -97,7 +119,7 @@ public static class TurnPolicy
         return new TurnDecision(choice.Tile, riichi, riichi ? $"{reason} + riichi" : reason) { Kind = kind };
     }
 
-    private static bool IsFuriten(in DiscardOption option, IReadOnlyList<int> ownRiver)
+    internal static bool IsFuriten(in DiscardOption option, IReadOnlyList<int> ownRiver)
     {
         foreach (AcceptTile accept in option.Accepts)
             if (ownRiver.Contains(accept.Tile))

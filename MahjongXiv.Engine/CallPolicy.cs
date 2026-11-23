@@ -7,8 +7,29 @@ namespace MahjongXiv.Engine;
 /// yakuhai is always live; otherwise an already-secured yakuhai set, or a dora-rich tanyao
 /// route, is required (an open hand without a yaku can never win).
 /// </summary>
+/// <summary>Everything a pon decision may use. Optional fields are null when the caller cannot see them.</summary>
+public sealed record CallInput
+{
+    public required int[] Counts13 { get; init; }
+    public IReadOnlyList<Meld> Melds { get; init; } = Array.Empty<Meld>();
+    public required int Tile { get; init; }
+    public required EvalContext Context { get; init; }
+    public bool OpponentRiichi { get; init; }
+    public int[]? Seen { get; init; }
+    public IReadOnlyList<OpponentView>? Opponents { get; init; }
+    public GameState? Game { get; init; }
+    public int WallRemaining { get; init; } = -1;
+}
+
 public static class CallPolicy
 {
+    /// <summary>The shipped pon rule, over a <see cref="CallInput"/>.</summary>
+    public static bool ShouldPon(CallInput input)
+        => ShouldPon(input.Counts13, input.Melds, input.Tile, input.Context, input.OpponentRiichi);
+
+    /// <summary>The pon rule under <paramref name="options"/> (the strategic variant is not enabled yet, so this is the shipped rule).</summary>
+    public static bool ShouldPon(CallInput input, EvalOptions options) => ShouldPon(input);
+
     public static bool ShouldPon(
         ReadOnlySpan<int> counts13, IReadOnlyList<Meld>? melds, int tile, EvalContext ctx, bool opponentRiichi)
     {

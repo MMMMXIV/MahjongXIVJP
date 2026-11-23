@@ -188,8 +188,12 @@ public sealed class MainWindow : Window, IDisposable
 
         if (decision.DeclareRiichi)
             ImGui.TextColored(Styling.AccentAmber, Loc.T("suggest.riichi"));
-        if (decision.Kind == TurnReason.FoldVsRiichi)
+        if (decision.Kind is TurnReason.FoldVsRiichi or TurnReason.Fold)
             ImGui.TextColored(Styling.AccentRose, Loc.T("suggest.fold"));
+        else if (decision.Kind == TurnReason.Push && board.Board?.AnyOpponentRiichi == true)
+            ImGui.TextColored(Styling.AccentAmber, Loc.T("suggest.push"));
+        else if (decision.Kind == TurnReason.Dama)
+            ImGui.TextColored(Styling.AccentBlueSoft, Loc.T("suggest.dama"));
         else if (decision.Kind == TurnReason.FuritenDodge)
             ImGui.TextColored(Styling.AccentBlueSoft, Loc.T("suggest.furiten"));
 
@@ -276,6 +280,15 @@ public sealed class MainWindow : Window, IDisposable
             cfg.AllowRankedAutoPlay = ranked;
             cfg.Save();
         }
+
+        bool strategic = cfg.StrategicAi;
+        if (ImGui.Checkbox($"{Loc.T("settings.strategicAi")}###mjStrategic", ref strategic))
+        {
+            cfg.StrategicAi = strategic;
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(Loc.T("settings.strategicAiNote"));
 
         bool requeue = cfg.AutoRequeue;
         if (ImGui.Checkbox($"{Loc.T("settings.autoRequeue")}###mjRequeue", ref requeue))

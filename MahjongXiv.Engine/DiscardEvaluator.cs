@@ -11,6 +11,9 @@ public sealed record EvalContext
 
     /// <summary>Red-five copies held, per tile type (only the 5m/5p/5s entries can be non-zero).</summary>
     public IReadOnlyList<int>? AkaByType { get; init; }
+
+    /// <summary>Point table the value estimates use. Null keeps the shipped han-only Doman table.</summary>
+    public ScoringOptions? Scoring { get; init; }
 }
 
 public readonly record struct ScoredDiscard(DiscardOption Option, long Value);
@@ -43,6 +46,37 @@ public sealed record EvalOptions
     /// value and yaku together: a draw that only reaches a yakuless open tenpai is worth nothing.
     /// </summary>
     public bool TenpaiLookahead { get; init; } = true;
+
+    // ---- Strategic layer (StrategicPolicy). All off in Default, so the shipped policy is unchanged. ----
+
+    /// <summary>Everything in the strategic layer on: the candidate configuration for A/B runs.</summary>
+    public static readonly EvalOptions Strategic = new()
+    {
+        PushFold = true,
+        RiichiJudgement = true,
+        PlacementAware = true,
+    };
+
+    /// <summary>
+    /// Against a riichi or a well-advanced open hand, compare pushing (win chance × value − deal-in
+    /// chance × loss over the remaining draws) with folding, per candidate discard, instead of always
+    /// folding from 1-shanten and always pushing at tenpai.
+    /// </summary>
+    public bool PushFold { get; init; }
+
+    /// <summary>Choose riichi or dama by comparing their expected values instead of riichi on every live tenpai.</summary>
+    public bool RiichiJudgement { get; init; }
+
+    /// <summary>Value outcomes by the expected final placement (score plus uma) instead of raw points.</summary>
+    public bool PlacementAware { get; init; }
+
+    /// <summary>Use the strategic deal-in estimate in pon decisions too (reserved; see CallPolicy).</summary>
+    public bool SmartPon { get; init; }
+
+    /// <summary>Multiplier on the modelled deal-in probabilities (tuning knob).</summary>
+    public double DealInScale { get; init; } = 1.0;
+
+    public bool AnyStrategic => PushFold || RiichiJudgement || PlacementAware;
 }
 
 /// <summary>
@@ -70,6 +104,10 @@ public static class DiscardEvaluator
         var ranked = new List<ScoredDiscard>(options.Count);
         Span<int> hand13 = stackalloc int[Tiles.TypeCount];
 
+        // Discarding A then drawing X then cutting B reaches the same tenpai as cutting B first: the
+        // 1-shanten lookahead revisits each tenpai many times, so its value is memoized per call.
+        Dictionary<UInt128, long>? tenpaiMemo = null;
+
         foreach (DiscardOption option in options)
         {
             counts14.CopyTo(hand13);
@@ -87,7 +125,7 @@ public static class DiscardEvaluator
 
             // The EV term dwarfs the progress value, which stays only as a tie-break (e.g. every draw yakuless).
             if (opts.TenpaiLookahead && option.Shanten == 1 && bestShanten == 1)
-                value += OneShantenValue(hand13, melds, option, seen, akaRemaining, ctx);
+                value += OneShantenValue(hand13, melds, option, seen, akaRemaining, ctx, tenpaiMemo ??= new());
 
             ranked.Add(new ScoredDiscard(option, value));
         }
@@ -155,7 +193,8 @@ public static class DiscardEvaluator
 
     /// <summary>Σ over accepted draws: live copies × the best tenpai EV one follow-up discard reaches.</summary>
     private static long OneShantenValue(
-        ReadOnlySpan<int> hand13, IReadOnlyList<Meld> melds, in DiscardOption option, int[]? seen, int akaRemaining, EvalContext ctx)
+        ReadOnlySpan<int> hand13, IReadOnlyList<Meld> melds, in DiscardOption option, int[]? seen, int akaRemaining, EvalContext ctx,
+        Dictionary<UInt128, long> memo)
     {
         Span<int> hand = stackalloc int[Tiles.TypeCount];
         int[]? seenAfter = seen is null ? null : (int[])seen.Clone();
@@ -175,12 +214,20 @@ public static class DiscardEvaluator
                     continue;
 
                 hand[d]--;
-                if (ShantenCalculator.Calculate(hand, melds.Count) == 0)
+                // The value depends on the hand, the extra seen copy (the draw) and the aka held.
+                UInt128 key = HandKey.Pack(hand, accept.Tile, akaRemaining);
+                if (!memo.TryGetValue(key, out long tenpaiValue))
                 {
-                    Acceptance waits = UkeireCalculator.Accept(hand, melds.Count, seenAfter);
-                    var tenpai = new DiscardOption(d, 0, waits.Types, waits.Count, waits.Tiles);
-                    best = Math.Max(best, TenpaiValue(hand, melds, tenpai, akaRemaining, ctx));
+                    tenpaiValue = -1;
+                    if (ShantenCalculator.Calculate(hand, melds.Count) == 0)
+                    {
+                        Acceptance waits = UkeireCalculator.Accept(hand, melds.Count, seenAfter);
+                        var tenpai = new DiscardOption(d, 0, waits.Types, waits.Count, waits.Tiles);
+                        tenpaiValue = TenpaiValue(hand, melds, tenpai, akaRemaining, ctx);
+                    }
+                    memo[key] = tenpaiValue;
                 }
+                best = Math.Max(best, tenpaiValue);
                 hand[d]++;
             }
 

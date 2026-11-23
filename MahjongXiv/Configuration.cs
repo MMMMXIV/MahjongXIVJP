@@ -79,6 +79,12 @@ public sealed class Configuration : IPluginConfiguration
     public int ResultDelayMinMs { get; set; } = 1500;
     public int ResultDelayMaxMs { get; set; } = 2800;
 
+    /// <summary>
+    /// Use the strategic AI layer (push/fold against threats, riichi vs dama, placement awareness) on
+    /// top of the shipped discard ranking, in both Suggest and Auto mode. Off = the shipped policy.
+    /// </summary>
+    public bool StrategicAi { get; set; }
+
     /// <summary>After a match ends, queue for the same table again (auto-play only).</summary>
     public bool AutoRequeue { get; set; }
 

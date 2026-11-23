@@ -5,6 +5,32 @@ namespace MahjongXiv.Engine;
 /// melds. Evaluates every standard decomposition, seven pairs, and kokushi, and returns the
 /// highest-value interpretation. Returns null if the hand is not actually complete.
 /// </summary>
+/// <summary>The overall shape a winning hand is read as.</summary>
+public enum HandForm
+{
+    Standard,
+    Chiitoitsu,
+    Kokushi,
+}
+
+/// <summary>One reading of a complete hand: its yaku (context yaku included), dora, blocks and wait.</summary>
+public sealed record HandReading(
+    IReadOnlyList<YakuHan> Yaku,
+    bool IsYakuman,
+    int DoraHan,
+    HandForm Form,
+    IReadOnlyList<SetBlock> Blocks,
+    int HeadTile,
+    YakuCalculator.WaitShape Wait,
+    bool Closed)
+{
+    public int YakuHan => IsYakuman ? YakuCalculator.YakumanHan * Math.Max(1, Yaku.Count) : Yaku.Sum(y => y.Han);
+
+    public bool HasYaku => Yaku.Count > 0;
+
+    public bool IsPinfu => Yaku.Any(y => y.Yaku == Engine.Yaku.Pinfu);
+}
+
 public static class YakuCalculator
 {
     public const int YakumanHan = 13;
@@ -66,6 +92,82 @@ public static class YakuCalculator
         };
     }
 
+    /// <summary>
+    /// Every legal reading of a complete hand (each decomposition × each place the winning tile can
+    /// sit, plus seven pairs and kokushi), with context yaku and dora applied. <see cref="Evaluate"/>
+    /// keeps the highest-han reading; scoring with fu (<see cref="ScoreCalculator"/>) needs them all,
+    /// because the highest-han reading is not always the highest-scoring one.
+    /// </summary>
+    public static List<HandReading> Interpretations(ReadOnlySpan<int> concealed, IReadOnlyList<Meld>? melds, in WinContext ctx)
+    {
+        melds ??= Array.Empty<Meld>();
+        var readings = new List<HandReading>();
+        if (ShantenCalculator.Calculate(concealed, melds.Count) != ShantenCalculator.Complete)
+            return readings;
+
+        bool closed = true;
+        foreach (Meld m in melds)
+            if (m.IsOpen)
+                closed = false;
+
+        int[] total = concealed.ToArray();
+        foreach (Meld m in melds)
+            foreach (int t in m.Tiles)
+                total[t]++;
+
+        if (melds.Count == 0 && ShantenCalculator.ThirteenOrphans(concealed) == ShantenCalculator.Complete)
+        {
+            readings.Add(new HandReading([new(Yaku.KokushiMusou, YakumanHan)], true, 0, HandForm.Kokushi,
+                Array.Empty<SetBlock>(), -1, WaitShape.Tanki, closed));
+            return readings;
+        }
+
+        foreach (Decomposition d in HandDecomposer.Decompose(concealed))
+        {
+            var blocks = new SetBlock[d.Sets.Count + melds.Count];
+            for (int i = 0; i < d.Sets.Count; i++)
+                blocks[i] = d.Sets[i];
+            for (int i = 0; i < melds.Count; i++)
+            {
+                Meld m = melds[i];
+                blocks[d.Sets.Count + i] = m.Kind switch
+                {
+                    MeldKind.Chii => new SetBlock(BlockKind.Run, m.Tiles.Min(), false),
+                    MeldKind.Pon => new SetBlock(BlockKind.Triplet, m.Tiles[0], false),
+                    _ => new SetBlock(BlockKind.Quad, m.Tiles[0], !m.IsOpen),
+                };
+            }
+
+            foreach ((int blockIndex, WaitShape shape) in WaitPlacements(d, ctx.WinTile))
+            {
+                var placed = (SetBlock[])blocks.Clone();
+                if (shape == WaitShape.Shanpon && !ctx.Tsumo && blockIndex >= 0)
+                    placed[blockIndex] = placed[blockIndex] with { Concealed = false };
+
+                if (EvaluatePlacement(placed, d.HeadTile, melds.Count, closed, total, shape, ctx) is { } r)
+                    readings.Add(Finish(r.Yaku, r.Yakuman, HandForm.Standard, placed, d.HeadTile, shape, closed, total, ctx));
+            }
+        }
+
+        if (melds.Count == 0 && ShantenCalculator.SevenPairs(concealed) == ShantenCalculator.Complete
+            && EvaluateChiitoi(total) is { } c)
+        {
+            readings.Add(Finish(c.Yaku, c.Yakuman, HandForm.Chiitoitsu, Array.Empty<SetBlock>(), -1, WaitShape.Tanki, closed, total, ctx));
+        }
+
+        return readings;
+    }
+
+    private static HandReading Finish(
+        List<YakuHan> yaku, bool yakuman, HandForm form, SetBlock[] blocks, int head, WaitShape wait, bool closed, int[] total, in WinContext ctx)
+    {
+        var list = new List<YakuHan>(yaku);
+        if (!yakuman)
+            AddContextYaku(list, closed, ctx);
+        int dora = yakuman ? 0 : CountDora(total, ctx);
+        return new HandReading(list, yakuman, dora, form, blocks, head, wait, closed);
+    }
+
     /// <summary>The dora tile named by an indicator: next rank in suit (9 wraps to 1), E→S→W→N→E, Haku→Hatsu→Chun→Haku.</summary>
     public static int DoraFromIndicator(int indicator)
     {
@@ -103,7 +205,8 @@ public static class YakuCalculator
         return sum;
     }
 
-    private enum WaitShape
+    /// <summary>How the winning tile completed the hand (for fu and pinfu).</summary>
+    public enum WaitShape
     {
         Ryanmen,
         Kanchan,

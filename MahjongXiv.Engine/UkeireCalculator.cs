@@ -17,6 +17,34 @@ public readonly record struct DiscardOption(int Tile, int Shanten, int UkeireTyp
 /// </summary>
 public static class UkeireCalculator
 {
+    /// <summary>
+    /// Whether drawing <paramref name="t"/> could possibly lower the shanten. A tile with no copy in
+    /// the hand and no same-suit neighbour within two ranks can join no set, partial or pair, so the
+    /// regular and seven-pairs forms cannot improve; only kokushi (closed hand, terminals and honors)
+    /// can still use it. Skipping the rest is exact and saves most shanten evaluations.
+    /// </summary>
+    public static bool MayImprove(ReadOnlySpan<int> hand, int t, int meldCount)
+    {
+        if (hand[t] > 0)
+            return true;
+        if (meldCount == 0 && Tiles.IsTerminalOrHonor(t))
+            return true;
+        if (Tiles.IsHonor(t))
+            return false;
+
+        int rank = Tiles.Rank(t);
+        for (int d = -2; d <= 2; d++)
+        {
+            int r = rank + d;
+            if (d == 0 || r < 1 || r > 9)
+                continue;
+            if (hand[t + d] > 0)
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Acceptance of a 13-tile (concealed) hand at its current shanten.</summary>
     public static Acceptance Accept(ReadOnlySpan<int> counts13, int meldCount = 0, int[]? seen = null)
     {
@@ -34,7 +62,7 @@ public static class UkeireCalculator
 
         for (int t = 0; t < Tiles.TypeCount; t++)
         {
-            if (work[t] >= 4)
+            if (work[t] >= 4 || !MayImprove(work, t, meldCount))
                 continue;
 
             work[t]++;
@@ -77,7 +105,7 @@ public static class UkeireCalculator
                 int count = 0;
                 for (int t = 0; t < Tiles.TypeCount; t++)
                 {
-                    if (hand14[t] >= 4)
+                    if (hand14[t] >= 4 || !MayImprove(hand14, t, meldCount))
                         continue;
 
                     hand14[t]++;

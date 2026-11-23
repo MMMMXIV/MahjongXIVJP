@@ -39,5 +39,8 @@ internal sealed class Wall
 
     public bool HasDraws => next < liveEnd;
 
+    /// <summary>Live tiles not yet drawn.</summary>
+    public int Remaining => liveEnd - next;
+
     public int Draw() => order[next++];
 }

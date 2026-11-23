@@ -183,7 +183,10 @@ internal sealed class LiveBoard
         sb.Append('|');
         foreach (IReadOnlyList<int> river in input.ThreatRivers)
             sb.Append(river.Count).Append(';');
-        sb.Append('|').Append(input.OwnRiver.Count);
+        sb.Append('|').Append(input.OwnRiver.Count).Append(input.Options.AnyStrategic ? 'S' : 'L');
+        if (input.Game is { } game)
+            foreach (int score in game.Scores)
+                sb.Append(',').Append(score);
         return sb.ToString();
     }
 
