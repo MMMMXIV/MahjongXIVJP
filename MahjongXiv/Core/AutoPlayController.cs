@@ -27,6 +27,10 @@ internal sealed class AutoPlayController : IDisposable
     private const int PopupRetryDelayMs = 700;
     private const int MaxPopupAttempts = 6;
 
+    /// <summary>Result screens are re-pressed this often while they stay up, at most <see cref="MaxResultAttempts"/> times.</summary>
+    private const int ResultRetryDelayMs = 1500;
+    private const int MaxResultAttempts = 4;
+
     /// <summary>
     /// Hold all actuation this long after the Emj addon first appears (or reappears). Acting while
     /// the table is still dealing/animating wedged a match live: the state codes are readable well
@@ -219,26 +223,57 @@ internal sealed class AutoPlayController : IDisposable
             // [9] when the deal animation finishes. Sending ours too caused a duplicate ack that
             // desynced the table (two live freezes both traced to a stray [9] ~3-4s after ours).
             case 29 or 32:
-                // At ranked tables a raw [17]/[14] closes the result screen but leaves its 30s
-                // auto-close timer running; when it expires mid-next-hand the addon fires its own
-                // [14], AgentEmj takes it as "close the final results" and jumps to state 41/42 with
-                // empty standings, wedging or crashing the client (seen five times, each ~30s after a
-                // bot advance, on both the Emj and EmjL addons). There the bot leaves result screens
-                // to the game's own timer.
-                if (EmjTableGuard.Current == TableKind.Ranked || EmjBoardReader.CurrentAddonName == "EmjL")
-                {
-                    acted = true;
-                    break;
-                }
-
-                if (EmjActuator.Advance())
-                {
-                    acted = true;
-                    Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
-                }
-
+                AdvanceResult();
                 break;
         }
+    }
+
+    /// <summary>
+    /// Move past a result screen. At ranked tables a raw [17]/[14] closes the result screen but leaves
+    /// its 30s auto-close timer running; when it expires mid-next-hand the addon fires its own [14],
+    /// AgentEmj takes it as "close the final results" and jumps to state 41/42 with empty standings,
+    /// wedging or crashing the client (seen five times, each ~30s after a bot advance). Ranked tables
+    /// are therefore left to the game's own timer. Elsewhere the bot presses the "Next" button like a
+    /// mouse click, which runs the addon's own handler; the raw opcode is only a fallback on the Emj
+    /// addon, where it was verified safe at casual tables.
+    /// </summary>
+    private void AdvanceResult()
+    {
+        if (EmjTableGuard.Current == TableKind.Ranked)
+        {
+            acted = true;
+            return;
+        }
+
+        if (popupAttempts >= MaxResultAttempts)
+        {
+            MjLog.Warn("advance: result screen did not move after retries; leaving it to the game timer.");
+            acted = true;
+            return;
+        }
+
+        popupAttempts++;
+        if (EmjActuator.ClickAdvance())
+        {
+            if (popupAttempts == 1)
+                Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
+
+            // Stay armed: if the screen is still up after the retry delay, press again.
+            actAtTick = Environment.TickCount64 + ResultRetryDelayMs;
+            return;
+        }
+
+        // No button yet (it may still be animating in): look again shortly.
+        if (popupAttempts < MaxResultAttempts)
+        {
+            actAtTick = Environment.TickCount64 + ResultRetryDelayMs;
+            return;
+        }
+
+        // Still none. The raw opcode is fired once, and only on Emj; otherwise wait for the timer.
+        if (EmjBoardReader.CurrentAddonName == "Emj" && EmjActuator.Advance())
+            Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
+        acted = true;
     }
 
     /// <summary>

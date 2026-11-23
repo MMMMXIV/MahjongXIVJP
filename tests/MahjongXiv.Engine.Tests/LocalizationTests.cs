@@ -99,6 +99,16 @@ public class LocalizationTests
         => Assert.Equal(expected, TileNames.Display(Tiles.Index(tile), japanese));
 
     [Fact]
+    public void FindsUiButtonsByLabel()
+    {
+        Assert.Equal(1, EmjStrings.IndexOfTerm(["詳細", "次へ"], EmjStrings.AdvanceButtonTerms));
+        Assert.Equal(0, EmjStrings.IndexOfTerm(["Next"], EmjStrings.AdvanceButtonTerms));
+        Assert.Equal(1, EmjStrings.IndexOfTerm(["Clear Selection", "参加申請"], EmjStrings.JoinButtonTerms));
+        Assert.Equal(0, EmjStrings.IndexOfTerm(["突入する"], EmjStrings.CommenceButtonTerms));
+        Assert.Equal(-1, EmjStrings.IndexOfTerm(["退室"], EmjStrings.AdvanceButtonTerms));
+    }
+
+    [Fact]
     public void TurnPolicyReportsReasonKind()
     {
         int[] hand = Tiles.ParseCounts("123m456p789s1122z3z");

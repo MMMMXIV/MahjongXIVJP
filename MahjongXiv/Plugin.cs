@@ -23,6 +23,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
+    [PluginService] internal static ICondition Condition { get; private set; } = null!;
+    [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
 
     internal static Plugin Instance { get; private set; } = null!;
     internal static Configuration Cfg { get; private set; } = null!;
@@ -31,6 +33,8 @@ public sealed class Plugin : IDalamudPlugin
     internal WindowSystem WindowSystem { get; } = new("MahjongXivJp");
 
     internal AutoPlayController AutoPlay { get; }
+
+    internal AutoQueue Queue { get; }
 
     /// <summary>The one throttled live-board read shared by the window and the overlay.</summary>
     internal LiveBoard Board { get; } = new();
@@ -50,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
         Cfg = Configuration;
 
         AutoPlay = new AutoPlayController();
+        Queue = new AutoQueue(AutoPlay);
         captureLogger = new EmjCaptureLogger();
 
         mainWindow = new MainWindow(this);
@@ -82,6 +87,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         mainWindow.Dispose();
 
+        Queue.Dispose();
         AutoPlay.Dispose();
         captureLogger.Dispose();
         agentProbe.Dispose();

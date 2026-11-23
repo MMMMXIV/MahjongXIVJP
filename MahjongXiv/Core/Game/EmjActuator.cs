@@ -189,6 +189,38 @@ internal static unsafe class EmjActuator
         return true;
     }
 
+    /// <summary>
+    /// Press the result screen's "Next" button (states 29/32) the way a mouse click would, so the addon
+    /// runs its own handler and stops its auto-close timer. Picks the button labelled "次へ"/"Next";
+    /// when no label matches but exactly one clickable button is on screen, that one. Returns false when
+    /// no button could be identified (the caller then leaves the screen to the game's timer).
+    /// </summary>
+    public static bool ClickAdvance()
+    {
+        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
+            return false;
+
+        int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
+        if (state is not (29 or 32))
+            return false;
+
+        List<UiButton> buttons = UiButtons.Find(addon);
+        int index = EmjStrings.IndexOfTerm(buttons.Select(b => b.Text).ToList(), EmjStrings.AdvanceButtonTerms);
+        if (index < 0 && buttons.Count == 1)
+            index = 0;
+
+        if (index < 0)
+        {
+            MjLog.Info($"advance: no next button identified at state {state} among [{UiButtons.Describe(buttons)}].");
+            return false;
+        }
+
+        UiButton button = buttons[index];
+        UiButtons.Click(addon, button);
+        MjLog.Info($"advance: clicked #{button.NodeId} '{button.Text}' (state {state}).");
+        return true;
+    }
+
     /// <summary>Fire the captured advance opcode for the current result / new-hand state (test only).</summary>
     public static bool Advance()
     {

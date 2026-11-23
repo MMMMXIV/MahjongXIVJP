@@ -79,6 +79,13 @@ public sealed class Configuration : IPluginConfiguration
     public int ResultDelayMinMs { get; set; } = 1500;
     public int ResultDelayMaxMs { get; set; } = 2800;
 
+    /// <summary>After a match ends, queue for the same table again (auto-play only).</summary>
+    public bool AutoRequeue { get; set; }
+
+    /// <summary>Wait before re-queueing, so the bot does not join the instant the match closes.</summary>
+    public int RequeueDelayMinMs { get; set; } = 4000;
+    public int RequeueDelayMaxMs { get; set; } = 9000;
+
     /// <summary>Restore the shipped auto-play delay ranges.</summary>
     public void ResetDelays()
     {
@@ -89,6 +96,8 @@ public sealed class Configuration : IPluginConfiguration
         CallDelayMaxMs = defaults.CallDelayMaxMs;
         ResultDelayMinMs = defaults.ResultDelayMinMs;
         ResultDelayMaxMs = defaults.ResultDelayMaxMs;
+        RequeueDelayMinMs = defaults.RequeueDelayMinMs;
+        RequeueDelayMaxMs = defaults.RequeueDelayMaxMs;
     }
 
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);

@@ -67,6 +67,25 @@ internal static class EmjStrings
         (EmjAction.Pass, ["Pass", "Skip", "パス", "スキップ", "スルー", "見送", "キャンセル", "しない"]),
     ];
 
+    /// <summary>Labels of the result-screen button that moves on to the next hand.</summary>
+    public static readonly string[] AdvanceButtonTerms = ["次へ", "Next", "Continue", "Proceed", "OK", "確認", "Weiter", "Suivant"];
+
+    /// <summary>Labels of the Duty Finder's join button.</summary>
+    public static readonly string[] JoinButtonTerms = ["参加申請", "Join", "Beitreten", "S'inscrire", "Participer"];
+
+    /// <summary>Labels of the duty-ready popup's commence button.</summary>
+    public static readonly string[] CommenceButtonTerms = ["突入", "Commence", "Betreten", "Entrer"];
+
+    /// <summary>The first label containing one of <paramref name="terms"/> (case-insensitive), or -1.</summary>
+    public static int IndexOfTerm(IReadOnlyList<string> labels, IReadOnlyList<string> terms)
+    {
+        for (int i = 0; i < labels.Count; i++)
+            foreach (string term in terms)
+                if (labels[i].Contains(term, StringComparison.OrdinalIgnoreCase))
+                    return i;
+        return -1;
+    }
+
     /// <summary>The canonical English seat wind for a localized panel word, or null if unrecognized.</summary>
     public static string? CanonicalWind(string? text)
         => text is not null && WindIndex.TryGetValue(text.Trim(), out int i) ? Canonical[i] : null;

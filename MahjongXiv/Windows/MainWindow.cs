@@ -249,6 +249,8 @@ public sealed class MainWindow : Window, IDisposable
             BoardPhase.Watching => "auto.watching",
             _ => "auto.waitingMatch",
         };
+        if (board.Phase == BoardPhase.NoMatch && Plugin.Instance.Queue.StatusKey is { } queueKey)
+            now = queueKey;
         ImGui.TextColored(Styling.AccentSoft, Loc.T(now));
 
         SessionStats stats = auto.Stats;
@@ -275,6 +277,15 @@ public sealed class MainWindow : Window, IDisposable
             cfg.Save();
         }
 
+        bool requeue = cfg.AutoRequeue;
+        if (ImGui.Checkbox($"{Loc.T("settings.autoRequeue")}###mjRequeue", ref requeue))
+        {
+            cfg.AutoRequeue = requeue;
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(Loc.T("settings.autoRequeueNote"));
+
         bool highlight = cfg.HighlightSuggestedTile;
         if (ImGui.Checkbox($"{Loc.T("settings.highlight")}###mjHighlight", ref highlight))
         {
@@ -292,6 +303,8 @@ public sealed class MainWindow : Window, IDisposable
         DelayRange("discard", () => cfg.TurnDelayMinMs, v => cfg.TurnDelayMinMs = v, () => cfg.TurnDelayMaxMs, v => cfg.TurnDelayMaxMs = v, cfg);
         DelayRange("call", () => cfg.CallDelayMinMs, v => cfg.CallDelayMinMs = v, () => cfg.CallDelayMaxMs, v => cfg.CallDelayMaxMs = v, cfg);
         DelayRange("results", () => cfg.ResultDelayMinMs, v => cfg.ResultDelayMinMs = v, () => cfg.ResultDelayMaxMs, v => cfg.ResultDelayMaxMs = v, cfg);
+
+        DelayRange("requeue", () => cfg.RequeueDelayMinMs, v => cfg.RequeueDelayMinMs = v, () => cfg.RequeueDelayMaxMs, v => cfg.RequeueDelayMaxMs = v, cfg);
 
         if (ImGui.SmallButton($"{Loc.T("settings.resetDelays")}###mjResetDelays"))
         {
