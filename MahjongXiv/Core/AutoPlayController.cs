@@ -55,8 +55,7 @@ internal sealed class AutoPlayController : IDisposable
     private nint tableAddress;
     private bool postCallTurn;
 
-    private readonly int[] prevRiverLens = new int[4];
-    private bool riversSeeded;
+    private readonly RiverProgress riverProgress = new();
     private int lastDiscardTile = -1;
 
     /// <summary>The cockpit is engaged (showing live reads), in either mode.</summary>
@@ -115,7 +114,7 @@ internal sealed class AutoPlayController : IDisposable
         EmjActuator.Reset();
         stableHand = null;
         tableAddress = 0;
-        riversSeeded = false;
+        riverProgress.Reset();
         lastDiscardTile = -1;
 
         if (hooked)
@@ -152,7 +151,7 @@ internal sealed class AutoPlayController : IDisposable
             EmjActuator.Reset();
             prevState = int.MinValue;
             addonAbsent = true;
-            riversSeeded = false;
+            riverProgress.Reset();
             stableHand = null;
         }
         tableAddress = address;
@@ -163,7 +162,7 @@ internal sealed class AutoPlayController : IDisposable
             {
                 addonAbsent = true;
                 prevState = int.MinValue;
-                riversSeeded = false;
+                riverProgress.Reset();
                 lastDiscardTile = -1;
             }
 
@@ -208,6 +207,7 @@ internal sealed class AutoPlayController : IDisposable
             EmjActuator.Reset();
             stableHand = null;
             postCallTurn = state == 28;
+            if (state == 2) { riverProgress.Reset(); lastDiscardTile = -1; }
             waitReason = "waiting for ready hand/options";
             MjLog.Info($"auto: state {prevState}->{state}, newOffer={newOffer}; starting observation");
             acted = false;
@@ -296,19 +296,8 @@ internal sealed class AutoPlayController : IDisposable
         if (board is null)
             return false;
 
-        bool grew = false;
-        for (int i = 0; i < prevRiverLens.Length && i < board.Rivers.Count; i++)
-        {
-            IReadOnlyList<int> river = board.Rivers[i];
-            if (riversSeeded && i != MjConstants.SelfIndex && river.Count > prevRiverLens[i])
-            {
-                lastDiscardTile = river[river.Count - 1];
-                grew = true;
-            }
-            prevRiverLens[i] = river.Count;
-        }
-
-        riversSeeded = true;
+        bool grew = riverProgress.Observe(board.Rivers, MjConstants.SelfIndex, out int tile);
+        if (grew) lastDiscardTile = tile;
         return grew;
     }
 

@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\MahjongXiv\Core\Game\RiverProgress.cs" Link="Plugin\RiverProgress.cs" />
     <Compile Include="..\..\MahjongXiv\Core\Game\DiscardHandshake.cs" Link="Plugin\DiscardHandshake.cs" />
   </ItemGroup>
 
