@@ -204,13 +204,10 @@ internal static unsafe class EmjActuator
             foreach (UiButton b in UiButtons.Find((AtkUnitBase*)unit))
                 all.Add((unit, name, b));
 
+        // Never consider a button that could leave the table, whatever else matches.
+        all.RemoveAll(x => EmjStrings.IndexOfTerm([x.Button.Text], EmjStrings.LeaveButtonTerms) >= 0);
         var labels = all.Select(x => x.Button.Text).ToList();
         int index = EmjStrings.IndexOfTerm(labels, strict ? EmjStrings.StrictAdvanceButtonTerms : EmjStrings.AdvanceButtonTerms);
-        if (index < 0 && allowLeave)
-        {
-            index = EmjStrings.IndexOfTerm(labels, EmjStrings.LeaveButtonTerms);
-            clickedLeave = index >= 0;
-        }
         if (index < 0 && allowSingle && all.Count == 1)
             index = 0;
 
@@ -223,20 +220,6 @@ internal static unsafe class EmjActuator
         (nint addon, string addonName, UiButton button) = all[index];
         UiButtons.Click((AtkUnitBase*)addon, button);
         MjLog.Info($"advance: clicked {addonName}#{button.NodeId} '{button.Text}' (state {state}).");
-        return true;
-    }
-
-    /// <summary>Answer "Yes" on a visible yes/no dialog (e.g. confirming leaving the table). Returns whether one was pressed.</summary>
-    public static bool ConfirmYes()
-    {
-        AtkUnitBase* dialog = UiButtons.GetReadyAddon("SelectYesno");
-        if (dialog == null)
-            return false;
-        UiButton? yes = UiButtons.FindByText(dialog, EmjStrings.YesButtonTerms);
-        if (yes is not { } b)
-            return false;
-        UiButtons.Click(dialog, b);
-        MjLog.Info($"confirm: pressed '{b.Text}'.");
         return true;
     }
 

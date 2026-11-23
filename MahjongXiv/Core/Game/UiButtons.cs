@@ -88,15 +88,6 @@ internal static unsafe class UiButtons
         addon->ReceiveEvent(button.Event->State.EventType, (int)button.Event->Param, button.Event, &data);
     }
 
-    /// <summary>Fire a raw addon callback made of int values (fallback when no button can be found).</summary>
-    public static void FireCallback(AtkUnitBase* addon, params int[] args)
-    {
-        AtkValue* values = stackalloc AtkValue[args.Length];
-        for (int i = 0; i < args.Length; i++)
-            values[i].SetInt(args[i]);
-        addon->FireCallback((uint)args.Length, values, true);
-    }
-
     public static string Describe(IEnumerable<UiButton> buttons)
         => string.Join(", ", buttons.Select(b => $"#{b.NodeId} '{b.Text}'"));
 

@@ -44,6 +44,13 @@ internal sealed unsafe class AutoQueue : IDisposable
     private long actAt;
     private int attempts;
     private bool commenceArmed;
+    private bool commencePressed;
+
+    /// <summary>When the table UI was last seen; the match only counts as over after it stays gone.</summary>
+    private long tableLastSeen;
+
+    /// <summary>The table must stay gone this long (and the player be out of the duty) before re-queueing.</summary>
+    private const int TableGoneMs = 20000;
 
     /// <summary>The last table we sat at that may be re-queued (ContentFinderCondition row), or 0.</summary>
     private uint lastCfc;
@@ -80,6 +87,7 @@ internal sealed unsafe class AutoQueue : IDisposable
         // At a table: remember it, and stand down until the match is over.
         if (EmjBoardReader.TryGetAddon(out _))
         {
+            tableLastSeen = now;
             TableKind kind = EmjTableGuard.Current;
             if (kind == TableKind.Casual || (kind == TableKind.Ranked && Plugin.Cfg.AllowRankedAutoPlay))
                 lastCfc = EmjTableGuard.CurrentCfc;
@@ -89,6 +97,15 @@ internal sealed unsafe class AutoQueue : IDisposable
 
         if (lastCfc == 0)
             return;
+
+        // Never touch the Duty Finder while still in (or entering/leaving) the mahjong duty: the table UI
+        // can hide for a moment mid-match, and the finder's buttons inside a duty can leave it.
+        if (now - tableLastSeen < TableGoneMs || InMahjongDuty())
+        {
+            if (phase != Phase.Queued)
+                phase = Phase.Idle;
+            return;
+        }
 
         ContentsFinderQueueState queue = QueueState();
 
@@ -172,6 +189,7 @@ internal sealed unsafe class AutoQueue : IDisposable
         if (confirm == null)
         {
             commenceArmed = false;
+            commencePressed = false;
             return;
         }
 
@@ -185,19 +203,23 @@ internal sealed unsafe class AutoQueue : IDisposable
         if (now < actAt)
             return;
 
+        if (commencePressed)
+            return; // pressed once for this pop; the popup stays up while the others accept
+
+        // Only ever a labelled "Commence" button, pressed once. No raw callbacks: an unverified
+        // callback on this popup can withdraw from the duty, which carries a penalty.
         UiButton? commence = UiButtons.FindByText(confirm, EmjStrings.CommenceButtonTerms);
         if (commence is { } button)
         {
             UiButtons.Click(confirm, button);
+            commencePressed = true;
             MjLog.Info($"requeue: pressed '{button.Text}' on the duty-ready popup.");
         }
         else
         {
-            UiButtons.FireCallback(confirm, 8);
-            MjLog.Info("requeue: commence button not identified; fired [8] on the duty-ready popup.");
+            commencePressed = true; // do not keep probing; the player (or the timer) decides
+            MjLog.Warn($"requeue: commence button not identified among [{UiButtons.Describe(UiButtons.Find(confirm))}]; leaving the popup alone.");
         }
-
-        actAt = now + 3000; // if the popup is still up later, press again
     }
 
     private void OpenFinder(long now)
@@ -226,9 +248,9 @@ internal sealed unsafe class AutoQueue : IDisposable
             return;
         }
 
+        // No raw callback: inside a duty the Duty Finder's buttons differ (e.g. leave the duty).
         List<UiButton> buttons = UiButtons.Find(finder);
-        MjLog.Info($"requeue: join button not identified among [{UiButtons.Describe(buttons)}]; firing [12, 0].");
-        UiButtons.FireCallback(finder, 12, 0);
+        MjLog.Warn($"requeue: join button not identified among [{UiButtons.Describe(buttons)}]; not pressing anything.");
     }
 
     private void Retry(string why)
@@ -252,8 +274,15 @@ internal sealed unsafe class AutoQueue : IDisposable
     {
         phase = Phase.Idle;
         commenceArmed = false;
+        commencePressed = false;
         attempts = 0;
     }
+
+    /// <summary>In the Manderville tables (every mahjong duty shares territory 831) or any duty at all.</summary>
+    private static bool InMahjongDuty()
+        => Plugin.ClientState.TerritoryType == 831
+           || EmjTableGuard.CurrentCfc != 0
+           || Plugin.DutyState.IsDutyStarted;
 
     private static ContentsFinderQueueState QueueState()
     {
