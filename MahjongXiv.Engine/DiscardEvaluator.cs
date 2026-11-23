@@ -55,6 +55,7 @@ public sealed record EvalOptions
         PushFold = true,
         RiichiJudgement = true,
         PlacementAware = true,
+        SmartPon = true,
     };
 
     /// <summary>
@@ -70,8 +71,14 @@ public sealed record EvalOptions
     /// <summary>Value outcomes by the expected final placement (score plus uma) instead of raw points.</summary>
     public bool PlacementAware { get; init; }
 
-    /// <summary>Use the strategic deal-in estimate in pon decisions too (reserved; see CallPolicy).</summary>
+    /// <summary>Price pon calls (pass vs pon + best discard) instead of the shipped rule; see CallPolicy.</summary>
     public bool SmartPon { get; init; }
+
+    /// <summary>How freely opponents discard into a riichi wait, relative to an unseen wait (tuning knob).</summary>
+    public double RiichiRonRate { get; init; } = 0.55;
+
+    /// <summary>How freely opponents discard into a dama wait (tuning knob).</summary>
+    public double DamaRonRate { get; init; } = 0.7;
 
     /// <summary>Multiplier on the modelled deal-in probabilities (tuning knob).</summary>
     public double DealInScale { get; init; } = 1.0;

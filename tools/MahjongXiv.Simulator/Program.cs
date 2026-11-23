@@ -9,6 +9,12 @@ using MahjongXiv.Simulator;
 // Table keys:     rounds=1|2 (default 2: east+south), scoring=flat|standard, kiriage=on
 // Candidate keys: see Policies.Configure (e.g. strategic=on, legacy=on, shape=off ...)
 string[] all = args;
+if (all.Length > 0 && all[0] == "examples")
+{
+    Examples.Run();
+    return;
+}
+
 bool ab = all.Length > 0 && all[0] == "ab";
 string[] rest = ab ? all[1..] : all;
 var pairs = rest.Where(a => a.Contains('=')).ToList();

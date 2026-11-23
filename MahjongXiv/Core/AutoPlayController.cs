@@ -496,9 +496,29 @@ internal sealed class AutoPlayController : IDisposable
             return pass;
 
         BoardSnapshot? board = EmjBoardReader.TryReadBoard();
-        bool take = CallPolicy.ShouldPon(
-            snap.Counts, snap.Melds, lastDiscardTile,
-            TableContext.BuildEvalContext(snap, board), board?.AnyOpponentRiichi ?? false);
+        bool take;
+        if (Plugin.Cfg.StrategicAi)
+        {
+            // Priced pon: a one-off evaluation (tens of milliseconds at most) when a call is offered.
+            TurnInput view = TableContext.BuildTurnInput(snap, board, riichiAvailable: false);
+            take = CallPolicy.ShouldPon(new CallInput
+            {
+                Counts13 = snap.Counts,
+                Melds = snap.Melds,
+                Tile = lastDiscardTile,
+                Context = view.Context,
+                OpponentRiichi = board?.AnyOpponentRiichi ?? false,
+                Seen = view.Seen,
+                Opponents = view.Opponents,
+                Game = view.Game,
+            }, EvalOptions.Strategic);
+        }
+        else
+        {
+            take = CallPolicy.ShouldPon(
+                snap.Counts, snap.Melds, lastDiscardTile,
+                TableContext.BuildEvalContext(snap, board), board?.AnyOpponentRiichi ?? false);
+        }
 
         return take ? new CallDecision(pon, $"pon {Tiles.Name(lastDiscardTile)}") : pass;
     }

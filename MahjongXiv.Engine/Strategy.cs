@@ -437,7 +437,7 @@ public static class StrategicPolicy
         double avgLoss = AvgLoss(threats, util, scoring);
         bool damaRon = info.DamaRonPossible && !info.Furiten;
 
-        var d = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, 0.7, damaRon, otherEnd, futureDanger * 0.6);
+        var d = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, opts.DamaRonRate, damaRon, otherEnd, futureDanger * 0.6);
         double dama = d.Win * util.Gain(MixedValue(info.DamaRon, info.DamaTsumo, damaRon) + Sticks(input))
                       - d.DealIn * avgLoss
                       + d.TenpaiAtEnd * util.Gain(1000) * 0.6;
@@ -446,7 +446,8 @@ public static class StrategicPolicy
         if (input.Context.Closed && input.RiichiAvailable)
         {
             double hazard = Math.Max(futureDanger, 0.012 * opts.DealInScale); // cannot fold once declared
-            var r = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, 0.45, !info.Furiten, otherEnd, hazard);
+            // A riichi makes opponents defend: fewer rons for us, but also fewer of their wins.
+            var r = WinModel.Run(0, info.Waits, info.Waits, unseen, draws, opts.RiichiRonRate, !info.Furiten, otherEnd * 0.8, hazard);
             double value = MixedValue(info.RiichiRon, info.RiichiTsumo, !info.Furiten) * UraFactor(info.RiichiRon);
             // The stick comes back on a win, so it only costs when the hand is not won.
             riichi = r.Win * util.Gain(value + Sticks(input))
