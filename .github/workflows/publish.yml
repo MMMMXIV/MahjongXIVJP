@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Directory.Build.props'
+      - '.github/workflows/publish.yml'
   workflow_dispatch:
 
 permissions:
@@ -59,7 +60,7 @@ jobs:
           $identity = @($props.Project.PropertyGroup | Where-Object { $_.Label -eq 'Identity' })[0]
           $version = [string]$identity.Version
           if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') { throw "Unexpected version: $version" }
-          $source = 'MahjongXiv/bin/Release/MahjongXIVJP/latest.zip'
+          $source = 'MahjongXiv/bin/x64/Release/MahjongXIVJP/latest.zip'
           if (-not (Test-Path $source)) { throw "Packager output missing: $source" }
 
           Add-Type -AssemblyName System.IO.Compression
