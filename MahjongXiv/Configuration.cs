@@ -85,6 +85,12 @@ public sealed class Configuration : IPluginConfiguration
     /// </summary>
     public bool StrategicAi { get; set; }
 
+    /// <summary>
+    /// Also press "Next" on result screens at ranked tables (by a simulated click, never the raw
+    /// callback that crashed the client). Needed for unattended ranked play.
+    /// </summary>
+    public bool AdvanceRankedResults { get; set; } = true;
+
     /// <summary>After a match ends, queue for the same table again (auto-play only).</summary>
     public bool AutoRequeue { get; set; }
 

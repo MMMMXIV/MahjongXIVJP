@@ -37,6 +37,31 @@ internal static unsafe class UiButtons
         return addon;
     }
 
+    /// <summary>
+    /// Every visible addon whose name starts with <paramref name="prefix"/> (e.g. the table "Emj"/"EmjL"
+    /// and any separate result window the mahjong UI opens), with its name.
+    /// </summary>
+    public static List<(string Name, nint Addon)> VisibleAddons(string prefix)
+    {
+        var found = new List<(string, nint)>();
+        var manager = FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager.Instance();
+        if (manager == null)
+            return found;
+
+        ref AtkUnitList list = ref manager->AtkUnitManager.AllLoadedUnitsList;
+        for (int i = 0; i < list.Count && i < list.Entries.Length; i++)
+        {
+            AtkUnitBase* unit = list.Entries[i].Value;
+            if (unit == null || !unit->IsVisible || !unit->IsReady)
+                continue;
+            string name = unit->NameString;
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+                found.Add((name, (nint)unit));
+        }
+
+        return found;
+    }
+
     /// <summary>Every visible, enabled button in the addon that has a click event the addon itself listens to.</summary>
     public static List<UiButton> Find(AtkUnitBase* addon)
     {

@@ -190,34 +190,53 @@ internal static unsafe class EmjActuator
     }
 
     /// <summary>
-    /// Press the result screen's "Next" button (states 29/32) the way a mouse click would, so the addon
-    /// runs its own handler and stops its auto-close timer. Picks the button labelled "次へ"/"Next";
-    /// when no label matches but exactly one clickable button is on screen, that one. Returns false when
-    /// no button could be identified (the caller then leaves the screen to the game's timer).
+    /// Press the button that moves a result screen on, the way a mouse click would (the addon runs its
+    /// own handler, timers included). Every visible mahjong window ("Emj…") is searched, since the
+    /// result may sit in its own window. A button labelled "次へ"/"Next"/"OK" is preferred; with
+    /// <paramref name="allowLeave"/> (final results only) "退室"/"Leave" also counts; with
+    /// <paramref name="allowSingle"/> a lone unlabelled button is taken when nothing else matches.
     /// </summary>
-    public static bool ClickAdvance()
+    public static bool ClickAdvance(int state, bool allowLeave, bool allowSingle, out bool clickedLeave, bool strict = false)
     {
-        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
-            return false;
+        clickedLeave = false;
+        var all = new List<(nint Addon, string Name, UiButton Button)>();
+        foreach ((string name, nint unit) in UiButtons.VisibleAddons("Emj"))
+            foreach (UiButton b in UiButtons.Find((AtkUnitBase*)unit))
+                all.Add((unit, name, b));
 
-        int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
-        if (state is not (29 or 32))
-            return false;
-
-        List<UiButton> buttons = UiButtons.Find(addon);
-        int index = EmjStrings.IndexOfTerm(buttons.Select(b => b.Text).ToList(), EmjStrings.AdvanceButtonTerms);
-        if (index < 0 && buttons.Count == 1)
+        var labels = all.Select(x => x.Button.Text).ToList();
+        int index = EmjStrings.IndexOfTerm(labels, strict ? EmjStrings.StrictAdvanceButtonTerms : EmjStrings.AdvanceButtonTerms);
+        if (index < 0 && allowLeave)
+        {
+            index = EmjStrings.IndexOfTerm(labels, EmjStrings.LeaveButtonTerms);
+            clickedLeave = index >= 0;
+        }
+        if (index < 0 && allowSingle && all.Count == 1)
             index = 0;
 
         if (index < 0)
         {
-            MjLog.Info($"advance: no next button identified at state {state} among [{UiButtons.Describe(buttons)}].");
+            MjLog.Info($"advance: no button identified at state {state} among [{string.Join(", ", all.Select(x => $"{x.Name}#{x.Button.NodeId} '{x.Button.Text}'"))}].");
             return false;
         }
 
-        UiButton button = buttons[index];
-        UiButtons.Click(addon, button);
-        MjLog.Info($"advance: clicked #{button.NodeId} '{button.Text}' (state {state}).");
+        (nint addon, string addonName, UiButton button) = all[index];
+        UiButtons.Click((AtkUnitBase*)addon, button);
+        MjLog.Info($"advance: clicked {addonName}#{button.NodeId} '{button.Text}' (state {state}).");
+        return true;
+    }
+
+    /// <summary>Answer "Yes" on a visible yes/no dialog (e.g. confirming leaving the table). Returns whether one was pressed.</summary>
+    public static bool ConfirmYes()
+    {
+        AtkUnitBase* dialog = UiButtons.GetReadyAddon("SelectYesno");
+        if (dialog == null)
+            return false;
+        UiButton? yes = UiButtons.FindByText(dialog, EmjStrings.YesButtonTerms);
+        if (yes is not { } b)
+            return false;
+        UiButtons.Click(dialog, b);
+        MjLog.Info($"confirm: pressed '{b.Text}'.");
         return true;
     }
 

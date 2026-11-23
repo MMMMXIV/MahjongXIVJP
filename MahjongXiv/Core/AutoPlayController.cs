@@ -137,6 +137,10 @@ internal sealed class AutoPlayController : IDisposable
             return;
         nextTickAllowed = now + TickIntervalMs;
 
+        // Leaving the table can ask for confirmation; answer it shortly after we pressed "leave".
+        if (now < confirmUntil && EmjActuator.ConfirmYes())
+            confirmUntil = 0;
+
         int state = EmjBoardReader.ReadStateCode();
 
         if (state < 0)
@@ -181,7 +185,7 @@ internal sealed class AutoPlayController : IDisposable
 
         // Diagnostics: record a result screen's clickable controls (once per session, or every time
         // while probing), to find the hand-change button to click instead of the raw callbacks.
-        if (state != prevState && state is 29 or 32)
+        if (state != prevState && state is 29 or 32 or 41 or 42)
         {
             if (Plugin.Instance.AgentProbe.Probing)
                 EmjClicker.DumpButtons();
@@ -226,9 +230,51 @@ internal sealed class AutoPlayController : IDisposable
             // [9] when the deal animation finishes. Sending ours too caused a duplicate ack that
             // desynced the table (two live freezes both traced to a stray [9] ~3-4s after ours).
             case 29 or 32:
-                AdvanceResult();
+                AdvanceResult(state);
+                break;
+            case 41 or 42:
+                // Final standings: move on (or leave the table) so the next match can be queued.
+                AdvanceFinal(state);
+                break;
+            default:
+                // Any other screen that is not one of our action states and sits there with a
+                // "Next"/"OK" button (a result variant we have not mapped) is moved on after a while.
+                if (state is not (2 or 6 or 15 or 28 or 30) && now - stateSince > UnknownScreenMs)
+                    AdvanceUnknown(state);
                 break;
         }
+    }
+
+    /// <summary>A screen with an unmapped state and a Next/OK button is pressed after this long.</summary>
+    private const int UnknownScreenMs = 8000;
+
+    private long confirmUntil;
+
+    private void AdvanceFinal(int state)
+    {
+        if (popupAttempts >= MaxResultAttempts)
+        {
+            acted = true;
+            return;
+        }
+
+        popupAttempts++;
+        if (EmjActuator.ClickAdvance(state, allowLeave: true, allowSingle: true, out bool leave) && leave)
+            confirmUntil = Environment.TickCount64 + 10000; // a "leave the table?" dialog may follow
+        actAtTick = Environment.TickCount64 + ResultRetryDelayMs * 2;
+    }
+
+    private void AdvanceUnknown(int state)
+    {
+        if (popupAttempts >= MaxResultAttempts)
+        {
+            acted = true;
+            return;
+        }
+
+        popupAttempts++;
+        EmjActuator.ClickAdvance(state, allowLeave: false, allowSingle: false, out _, strict: true);
+        actAtTick = Environment.TickCount64 + ResultRetryDelayMs * 2;
     }
 
     /// <summary>
@@ -240,9 +286,10 @@ internal sealed class AutoPlayController : IDisposable
     /// mouse click, which runs the addon's own handler; the raw opcode is only a fallback on the Emj
     /// addon, where it was verified safe at casual tables.
     /// </summary>
-    private void AdvanceResult()
+    private void AdvanceResult(int state)
     {
-        if (EmjTableGuard.Current == TableKind.Ranked)
+        bool ranked = EmjTableGuard.Current == TableKind.Ranked;
+        if (ranked && !Plugin.Cfg.AdvanceRankedResults)
         {
             acted = true;
             return;
@@ -256,7 +303,7 @@ internal sealed class AutoPlayController : IDisposable
         }
 
         popupAttempts++;
-        if (EmjActuator.ClickAdvance())
+        if (EmjActuator.ClickAdvance(state, allowLeave: false, allowSingle: true, out _))
         {
             if (popupAttempts == 1)
                 Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
@@ -273,8 +320,9 @@ internal sealed class AutoPlayController : IDisposable
             return;
         }
 
-        // Still none. The raw opcode is fired once, and only on Emj; otherwise wait for the timer.
-        if (EmjBoardReader.CurrentAddonName == "Emj" && EmjActuator.Advance())
+        // Still none. The raw opcode is fired once, only on Emj and never at ranked tables (it left the
+        // auto-close timer running there and crashed the client); otherwise wait for the game's timer.
+        if (!ranked && EmjBoardReader.CurrentAddonName == "Emj" && EmjActuator.Advance())
             Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
         acted = true;
     }
@@ -587,7 +635,7 @@ internal sealed class AutoPlayController : IDisposable
         {
             6 or 28 or 30 => Roll(cfg.TurnDelayMinMs, cfg.TurnDelayMaxMs),   // human think time before discarding
             15 => Roll(cfg.CallDelayMinMs, cfg.CallDelayMaxMs),        // call-decision reaction
-            29 or 32 => Roll(cfg.ResultDelayMinMs, cfg.ResultDelayMaxMs), // let the result screen settle
+            29 or 32 or 41 or 42 => Roll(cfg.ResultDelayMinMs, cfg.ResultDelayMaxMs), // let the result screen settle
             _ => 0,
         };
     }

@@ -70,6 +70,15 @@ internal static class EmjStrings
     /// <summary>Labels of the result-screen button that moves on to the next hand.</summary>
     public static readonly string[] AdvanceButtonTerms = ["次へ", "Next", "Continue", "Proceed", "OK", "確認", "Weiter", "Suivant"];
 
+    /// <summary>The unambiguous subset of <see cref="AdvanceButtonTerms"/>, for screens whose state is not mapped.</summary>
+    public static readonly string[] StrictAdvanceButtonTerms = ["次へ", "Next", "Continue", "Proceed", "Weiter", "Suivant"];
+
+    /// <summary>Labels of the button that leaves the table on the final-results screen.</summary>
+    public static readonly string[] LeaveButtonTerms = ["退室", "Leave", "Exit", "Quit", "Verlassen", "Quitter"];
+
+    /// <summary>Labels of the affirmative button of a yes/no confirmation dialog.</summary>
+    public static readonly string[] YesButtonTerms = ["はい", "Yes", "OK", "Ja", "Oui"];
+
     /// <summary>Labels of the Duty Finder's join button.</summary>
     public static readonly string[] JoinButtonTerms = ["参加申請", "Join", "Beitreten", "S'inscrire", "Participer"];
 
