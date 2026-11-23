@@ -91,9 +91,9 @@ internal static unsafe class EmjActuator
                 FireInts(addon, OpHighlight, iconId);
                 return false;
             case DiscardStep.Click:
-                if (!EmjClicker.Enabled || !EmjClicker.TryClickSlot(slot))
+                if (!EmjClicker.TryClickSlot(slot))
                 {
-                    handshake.Fail("verified tile click unavailable; raw callback fallback disabled");
+                    handshake.Fail($"tile click unavailable: {EmjClicker.LastFailure}; raw callback fallback disabled");
                     return false;
                 }
                 MjLog.Info($"discard: input sent slot={slot} icon={iconId}; awaiting state acknowledgement");

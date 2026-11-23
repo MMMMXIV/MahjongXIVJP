@@ -8,6 +8,14 @@ internal static unsafe class EmjClicker
     // Turning this off disables discards; it no longer enables raw callbacks.
     public static bool Enabled { get; set; } = true;
 
+    public static string? LastFailure { get; private set; }
+    private static bool Reject(string reason)
+    {
+        LastFailure = reason;
+        MjLog.Warn($"click: {reason}");
+        return false;
+    }
+
     private static bool resultButtonsLogged;
 
     /// <summary>Dump the result screen's controls once per session, to find the hand-change button.</summary>
@@ -22,23 +30,21 @@ internal static unsafe class EmjClicker
     /// <summary>Click hand slot 0-13 (13 = drawn tile). False when the slot or its click event can't be found.</summary>
     public static bool TryClickSlot(int slot)
     {
-        if (!Enabled || slot is < 0 or > 13 || !EmjBoardReader.TryGetAddon(out AtkUnitBase* addon)
-            || !addon->IsReady || addon->AtkValues == null || addon->AtkValuesCount == 0
-            || addon->AtkValues[0].Int != 30)
-            return false;
+        LastFailure = null;
+        if (!Enabled) return Reject("click-discard disabled for this session");
+        if (slot is < 0 or > 13) return Reject($"slot {slot} out of range");
+        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon) || !addon->IsReady
+            || addon->AtkValues == null || addon->AtkValuesCount == 0)
+            return Reject("table not ready");
+        if (addon->AtkValues[0].Int != 30) return Reject($"state changed to {addon->AtkValues[0].Int}");
 
-        AtkResNode* button = SlotButton(addon, slot);
-        if (button == null)
-        {
-            MjLog.Warn($"click: slot {slot} has no button node.");
-            return false;
-        }
+        AtkResNode* button = SlotButton(addon, slot, out string reason);
+        if (button == null) return Reject($"slot {slot}: {reason}");
 
         AtkEvent* evt = PickClickEvent(addon, button);
         if (evt == null)
         {
-            MjLog.Warn($"click: slot {slot} button has no click event registered by the addon.");
-            return false;
+            return Reject($"slot {slot} node {button->NodeId}: no addon-owned ButtonClick event");
         }
 
         // ReceiveEvent can rebuild the event list: capture scalars and never read evt afterwards.
@@ -63,7 +69,7 @@ internal static unsafe class EmjClicker
         for (int slot = 0; slot <= 13; slot++)
         {
             AtkResNode* node = SlotNode(addon, slot);
-            AtkResNode* button = SlotButton(addon, slot);
+            AtkResNode* button = SlotButton(addon, slot, out _);
             MjLog.Info($"events: slot {slot} node {Describe(addon, node)} | button {Describe(addon, button)}");
         }
     }
@@ -155,21 +161,41 @@ internal static unsafe class EmjClicker
     }
 
     /// <summary>Hand tile component node -> its button node (Uld NodeList[HandButtonNodeListIndex]).</summary>
-    private static AtkResNode* SlotButton(AtkUnitBase* addon, int slot)
+    private static AtkResNode* SlotButton(AtkUnitBase* addon, int slot, out string reason)
     {
-        AtkResNode* node = SlotNode(addon, slot);
-        if (node == null || !node->IsVisible() || (int)node->Type < 1000)
-            return null;
+        var nodes = new NativeTileNodes();
+        return (AtkResNode*)TileButtonResolver.Find((nint)SlotNode(addon, slot),
+            MjConstants.HandButtonNodeListIndex, ref nodes, out reason);
+    }
 
-        AtkComponentBase* component = ((AtkComponentNode*)node)->Component;
-        if (component == null || component->OwnerNode == null || component->GetComponentType() != ComponentType.Button
-            || !((AtkComponentButton*)component)->IsEnabled)
-            return null;
+    private struct NativeTileNodes : ITileNodeAccess
+    {
+        public bool IsVisible(nint address) => ((AtkResNode*)address)->IsVisible();
 
-        AtkUldManager* uld = &component->UldManager;
-        int index = MjConstants.HandButtonNodeListIndex;
-        if (uld->NodeList == null || index < 0 || index >= uld->NodeListCount) return null;
-        AtkResNode* button = uld->NodeList[index];
-        return button != null && button->IsVisible() ? button : null;
+        public nint ChildAt(nint address, int index)
+        {
+            var node = (AtkResNode*)address;
+            if ((int)node->Type < 1000) return 0;
+            AtkComponentBase* container = ((AtkComponentNode*)node)->Component;
+            if (container == null) return 0;
+            AtkUldManager* uld = &container->UldManager;
+            if (uld->NodeList == null || index < 0 || index >= uld->NodeListCount) return 0;
+            return (nint)uld->NodeList[index];
+        }
+
+        public bool IsEnabledButton(nint address, out string reason)
+        {
+            var node = (AtkResNode*)address;
+            reason = $"child node {node->NodeId} is not a component (type={(int)node->Type})";
+            if ((int)node->Type < 1000) return false;
+            AtkComponentBase* button = ((AtkComponentNode*)node)->Component;
+            reason = $"child node {node->NodeId} has no component or owner";
+            if (button == null || button->OwnerNode == null) return false;
+            ComponentType type = button->GetComponentType();
+            reason = $"child node {node->NodeId} is {type}, not Button";
+            if (type != ComponentType.Button) return false;
+            reason = $"child button {node->NodeId} is disabled";
+            return ((AtkComponentButton*)button)->IsEnabled;
+        }
     }
 }
