@@ -281,17 +281,7 @@ public sealed class MainWindow : Window, IDisposable
             cfg.Save();
         }
 
-        if (cfg.AllowRankedAutoPlay)
-        {
-            bool advanceRanked = cfg.AdvanceRankedResults;
-            if (ImGui.Checkbox($"{Loc.T("settings.advanceRanked")}###mjAdvanceRanked", ref advanceRanked))
-            {
-                cfg.AdvanceRankedResults = advanceRanked;
-                cfg.Save();
-            }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Loc.T("settings.advanceRankedNote"));
-        }
+        ImGui.TextWrapped(Loc.T("settings.resultManual"));
 
         bool strategic = cfg.StrategicAi;
         if (ImGui.Checkbox($"{Loc.T("settings.strategicAi")}###mjStrategic", ref strategic))

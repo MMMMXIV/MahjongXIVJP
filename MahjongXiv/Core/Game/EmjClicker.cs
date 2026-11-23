@@ -2,20 +2,10 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace MahjongXiv.Core.Game;
 
-/// <summary>
-/// Discards by simulating a real click on a hand tile instead of firing the [7, slot] callback directly.
-/// A direct callback skips the addon's own click handling, which on the ranked EmjL table left the
-/// "Time remaining" panel up; the stale panel later fired its own discard ([7, 12]) and, on the next
-/// real click, an op 14 that sent AgentEmj into its end-of-match path. A simulated click runs the
-/// addon's handler, which fires [7, slot] itself and tidies its own state, exactly like a mouse click.
-/// The click replays the event the addon registered on the tile's button node.
-/// </summary>
+/// <summary>Dispatches only an addon-owned ButtonClick on a visible, enabled tile button.</summary>
 internal static unsafe class EmjClicker
 {
-    /// <summary>
-    /// Discard by simulated click (default). <c>/mj click-discard off</c> falls back to the raw callback
-    /// for the current session.
-    /// </summary>
+    // Turning this off disables discards; it no longer enables raw callbacks.
     public static bool Enabled { get; set; } = true;
 
     private static bool resultButtonsLogged;
@@ -32,7 +22,9 @@ internal static unsafe class EmjClicker
     /// <summary>Click hand slot 0-13 (13 = drawn tile). False when the slot or its click event can't be found.</summary>
     public static bool TryClickSlot(int slot)
     {
-        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
+        if (!Enabled || slot is < 0 or > 13 || !EmjBoardReader.TryGetAddon(out AtkUnitBase* addon)
+            || !addon->IsReady || addon->AtkValues == null || addon->AtkValuesCount == 0
+            || addon->AtkValues[0].Int != 30)
             return false;
 
         AtkResNode* button = SlotButton(addon, slot);
@@ -49,9 +41,13 @@ internal static unsafe class EmjClicker
             return false;
         }
 
+        // ReceiveEvent can rebuild the event list: capture scalars and never read evt afterwards.
+        var type = evt->State.EventType;
+        int param = (int)evt->Param;
         var data = new AtkEventData();
-        addon->ReceiveEvent(evt->State.EventType, (int)evt->Param, evt, &data);
-        MjLog.Info($"click: slot {slot} via {evt->State.EventType} (param {evt->Param}).");
+        MjLog.Info($"click: begin slot={slot} type={type} param={param} addon={(nint)addon:X}");
+        addon->ReceiveEvent(type, param, evt, &data);
+        MjLog.Info($"click: returned slot={slot} type={type} param={param}");
         return true;
     }
 
@@ -139,24 +135,13 @@ internal static unsafe class EmjClicker
         return $"id {node->NodeId} [{(parts.Count == 0 ? "no events" : string.Join(", ", parts))}]";
     }
 
-    /// <summary>
-    /// Prefer the addon's ButtonClick event, then any other event the addon registered, then the first
-    /// event on the node.
-    /// </summary>
     private static AtkEvent* PickClickEvent(AtkUnitBase* addon, AtkResNode* node)
     {
-        AtkEvent* anyAddon = null;
-        for (AtkEvent* evt = node->AtkEventManager.Event; evt != null; evt = evt->NextEvent)
-        {
-            if (evt->Listener != (AtkEventListener*)addon)
-                continue;
-            if (evt->State.EventType == AtkEventType.ButtonClick)
+        int visited = 0;
+        for (AtkEvent* evt = node->AtkEventManager.Event; evt != null && visited++ < 64; evt = evt->NextEvent)
+            if (evt->Listener == (AtkEventListener*)addon && evt->State.EventType == AtkEventType.ButtonClick)
                 return evt;
-            if (anyAddon == null)
-                anyAddon = evt;
-        }
-
-        return anyAddon != null ? anyAddon : node->AtkEventManager.Event;
+        return null;
     }
 
     private static AtkResNode* SlotNode(AtkUnitBase* addon, int slot)
@@ -173,15 +158,18 @@ internal static unsafe class EmjClicker
     private static AtkResNode* SlotButton(AtkUnitBase* addon, int slot)
     {
         AtkResNode* node = SlotNode(addon, slot);
-        if (node == null || (int)node->Type < 1000)
+        if (node == null || !node->IsVisible() || (int)node->Type < 1000)
             return null;
 
         AtkComponentBase* component = ((AtkComponentNode*)node)->Component;
-        if (component == null)
+        if (component == null || component->OwnerNode == null || component->GetComponentType() != ComponentType.Button
+            || !((AtkComponentButton*)component)->IsEnabled)
             return null;
 
         AtkUldManager* uld = &component->UldManager;
         int index = MjConstants.HandButtonNodeListIndex;
-        return index < uld->NodeListCount ? uld->NodeList[index] : null;
+        if (uld->NodeList == null || index < 0 || index >= uld->NodeListCount) return null;
+        AtkResNode* button = uld->NodeList[index];
+        return button != null && button->IsVisible() ? button : null;
     }
 }

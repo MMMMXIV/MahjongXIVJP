@@ -9,7 +9,7 @@ namespace MahjongXiv.Core;
 /// Live cockpit driver with two modes (see <see cref="PlayMode"/>). In Auto it runs the autonomous play
 /// loop: each of our turns it discards the engine's best tile, declares riichi or tsumo when live, and on
 /// call popups accepts Ron, takes a pon when <see cref="CallPolicy"/> approves, or passes; it advances
-/// result / new-hand screens. In Suggest it sends no inputs at all — the cockpit just shows the move and
+    /// leaves result / new-hand screens to the game. In Suggest it sends no inputs — the cockpit shows the move and
 /// the player makes it. Casual tables only; unattended automation of a PvP mode.
 /// </summary>
 internal sealed class AutoPlayController : IDisposable
@@ -19,17 +19,9 @@ internal sealed class AutoPlayController : IDisposable
     /// <summary>Pause between firing the riichi option and cutting the riichi tile, letting the prompt close.</summary>
     private const int RiichiFollowupDelayMs = 450;
 
-    /// <summary>
-    /// Popup fires are verified by re-checking the state: a callback sent while the prompt is still
-    /// animating in gets swallowed (seen live: the bot's [11, 1] pass was ignored, an identical manual
-    /// click seconds later worked). Retry after this delay, give up after <see cref="MaxPopupAttempts"/>.
-    /// </summary>
+    // A sent popup is never retried while the same offer remains visible.
     private const int PopupRetryDelayMs = 700;
-    private const int MaxPopupAttempts = 6;
-
-    /// <summary>Result screens are re-pressed this often while they stay up, at most <see cref="MaxResultAttempts"/> times.</summary>
-    private const int ResultRetryDelayMs = 1500;
-    private const int MaxResultAttempts = 4;
+    private const int MaxPopupAttempts = 1;
 
     /// <summary>
     /// Hold all actuation this long after the Emj addon first appears (or reappears). Acting while
@@ -57,6 +49,11 @@ internal sealed class AutoPlayController : IDisposable
     private long graceUntil;
     private long stateSince;
     private bool stuckWarned;
+    private string waitReason = "waiting for ready hand";
+    private string? stableHand;
+    private long stableHandSince;
+    private nint tableAddress;
+    private bool postCallTurn;
 
     private readonly int[] prevRiverLens = new int[4];
     private bool riversSeeded;
@@ -84,7 +81,7 @@ internal sealed class AutoPlayController : IDisposable
             BlockedReason = null;
             Stats.Reset();
             MjLog.Info(Mode == PlayMode.Auto
-                ? "Auto-play ON (casual tables only; ranked tables are refused): discards, riichi, tsumo, ron, auto-pass, auto-advance, defense."
+                ? "Auto-play ON: guarded discards/calls; result screens and new-hand acknowledgement are left to the game."
                 : "Suggestions ON: showing the best move each turn. No inputs are sent for you.");
         }
         else
@@ -115,6 +112,11 @@ internal sealed class AutoPlayController : IDisposable
         if (shouldHook == hooked)
             return;
         hooked = shouldHook;
+        EmjActuator.Reset();
+        stableHand = null;
+        tableAddress = 0;
+        riversSeeded = false;
+        lastDiscardTile = -1;
 
         if (hooked)
         {
@@ -132,12 +134,28 @@ internal sealed class AutoPlayController : IDisposable
 
     private void OnUpdate(IFramework framework)
     {
+        try { Tick(); }
+        catch (Exception ex) { StopUnsafe($"managed update error: {ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    private void Tick()
+    {
         long now = Environment.TickCount64;
         if (now < nextTickAllowed)
             return;
         nextTickAllowed = now + TickIntervalMs;
 
         int state = EmjBoardReader.ReadStateCode();
+        nint address = EmjBoardReader.CurrentAddress;
+        if (tableAddress != 0 && address != tableAddress)
+        {
+            EmjActuator.Reset();
+            prevState = int.MinValue;
+            addonAbsent = true;
+            riversSeeded = false;
+            stableHand = null;
+        }
+        tableAddress = address;
 
         if (state < 0)
         {
@@ -170,27 +188,28 @@ internal sealed class AutoPlayController : IDisposable
         if (now < graceUntil)
             return;
 
+        if (EmjActuator.Failure is { } failure)
+        {
+            StopUnsafe(failure);
+            return;
+        }
         bool newDiscard = TrackDiscards();
 
-        // 6 and 30 are the same "our turn" (our own [15] highlight moves 6->30 mid-discard); don't re-arm between them.
-        bool sameTurn = state is 6 or 30 && prevState is 6 or 30;
+        // Never reset a pending handshake merely because its own highlight changed the state.
+        if (state != prevState)
+            MjLog.Info($"auto: observed state {prevState}->{state}, acted={acted}, waiting={waitReason}");
 
         // Back-to-back call offers can stay in state 15 throughout; a fresh opponent discard means a
         // fresh popup, so it gets its own delay and retry budget instead of inheriting the last one's.
         bool newOffer = state == 15 && prevState == 15 && newDiscard;
 
-        // Diagnostics: record a result screen's clickable controls (once per session, or every time
-        // while probing), to find the hand-change button to click instead of the raw callbacks.
-        if (state != prevState && state is 29 or 32 or 41 or 42)
+        if (DiscardHandshake.ShouldRearm(prevState, state, newDiscard))
         {
-            if (Plugin.Instance.AgentProbe.Probing)
-                EmjClicker.DumpButtons();
-            else
-                EmjClicker.DumpButtonsOnce();
-        }
-
-        if ((state != prevState && !sameTurn) || newOffer)
-        {
+            EmjActuator.Reset();
+            stableHand = null;
+            postCallTurn = state == 28;
+            waitReason = "waiting for ready hand/options";
+            MjLog.Info($"auto: state {prevState}->{state}, newOffer={newOffer}; starting observation");
             acted = false;
             riichiFired = false;
             riichiTile = -1;
@@ -204,7 +223,8 @@ internal sealed class AutoPlayController : IDisposable
         if (!stuckWarned && state is 2 or 6 or 15 or 28 or 30 && now - stateSince > StuckWarnMs)
         {
             stuckWarned = true;
-            MjLog.Warn($"auto: state {state} unresolved for {(now - stateSince) / 1000}s (acted={acted}, popupAttempts={popupAttempts}).");
+            StopUnsafe($"state={state} unresolved for {now - stateSince}ms; {waitReason}; acted={acted}, popupAttempts={popupAttempts}");
+            return;
         }
 
         if (acted || now < actAtTick)
@@ -213,7 +233,7 @@ internal sealed class AutoPlayController : IDisposable
         switch (state)
         {
             case 6 or 30:
-                DoTurn(afterCall: false);
+                DoTurn(afterCall: postCallTurn);
                 break;
             case 28:
                 // Post-call discard surface: a tile must be cut, but no win/riichi is possible here.
@@ -229,74 +249,18 @@ internal sealed class AutoPlayController : IDisposable
                 AdvanceResult(state);
                 break;
             case 41 or 42:
-                // Final standings: only a button labelled "次へ"/"Next" is pressed. The bot never
-                // presses "leave" and never answers confirmation dialogs; the game's own timer
-                // closes the table.
+                // Final standings: no synthesized events, including Next/Leave/confirmation.
                 AdvanceFinal(state);
                 break;
         }
     }
 
-    private void AdvanceFinal(int state)
+    private void AdvanceFinal(int state) => LeaveResultToGame(state);
+    private void AdvanceResult(int state) => LeaveResultToGame(state);
+
+    private void LeaveResultToGame(int state)
     {
-        if (popupAttempts >= MaxResultAttempts)
-        {
-            acted = true;
-            return;
-        }
-
-        popupAttempts++;
-        EmjActuator.ClickAdvance(state, allowLeave: false, allowSingle: false, out _, strict: true);
-        actAtTick = Environment.TickCount64 + ResultRetryDelayMs * 2;
-    }
-
-    /// <summary>
-    /// Move past a result screen. At ranked tables a raw [17]/[14] closes the result screen but leaves
-    /// its 30s auto-close timer running; when it expires mid-next-hand the addon fires its own [14],
-    /// AgentEmj takes it as "close the final results" and jumps to state 41/42 with empty standings,
-    /// wedging or crashing the client (seen five times, each ~30s after a bot advance). Ranked tables
-    /// are therefore left to the game's own timer. Elsewhere the bot presses the "Next" button like a
-    /// mouse click, which runs the addon's own handler; the raw opcode is only a fallback on the Emj
-    /// addon, where it was verified safe at casual tables.
-    /// </summary>
-    private void AdvanceResult(int state)
-    {
-        bool ranked = EmjTableGuard.Current == TableKind.Ranked;
-        if (ranked && !Plugin.Cfg.AdvanceRankedResults)
-        {
-            acted = true;
-            return;
-        }
-
-        if (popupAttempts >= MaxResultAttempts)
-        {
-            MjLog.Warn("advance: result screen did not move after retries; leaving it to the game timer.");
-            acted = true;
-            return;
-        }
-
-        popupAttempts++;
-        if (EmjActuator.ClickAdvance(state, allowLeave: false, allowSingle: false, out _))
-        {
-            if (popupAttempts == 1)
-                Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
-
-            // Stay armed: if the screen is still up after the retry delay, press again.
-            actAtTick = Environment.TickCount64 + ResultRetryDelayMs;
-            return;
-        }
-
-        // No button yet (it may still be animating in): look again shortly.
-        if (popupAttempts < MaxResultAttempts)
-        {
-            actAtTick = Environment.TickCount64 + ResultRetryDelayMs;
-            return;
-        }
-
-        // Still none. The raw opcode is fired once, only on Emj and never at ranked tables (it left the
-        // auto-close timer running there and crashed the client); otherwise wait for the game's timer.
-        if (!ranked && EmjBoardReader.CurrentAddonName == "Emj" && EmjActuator.Advance())
-            Stats.Record(AutoActionKind.Advance, Loc.T("act.advance"));
+        MjLog.Info($"auto: result state={state}; waiting for manual advance or native timer (no injected input)");
         acted = true;
     }
 
@@ -304,6 +268,14 @@ internal sealed class AutoPlayController : IDisposable
     /// Refuse to act at a non-casual table: disengage, and tell the player in chat and in the cockpit
     /// (the plugin log alone goes unseen). Suggest mode is unaffected — it never hooks this loop.
     /// </summary>
+    private void StopUnsafe(string detail)
+    {
+        BlockedReason = "自動操作を安全のため停止しました。手動で続行してください。";
+        MjLog.Warn($"auto: FAIL-CLOSED {detail}");
+        Plugin.ChatGui.PrintError($"{MjConstants.LogPrefix} {BlockedReason} ({detail})");
+        SetRunning(false);
+    }
+
     private void Block(string reason, TableKind table)
     {
         BlockedReason = reason;
@@ -342,8 +314,39 @@ internal sealed class AutoPlayController : IDisposable
 
     private void DoTurn(bool afterCall)
     {
-        if (!EmjBoardReader.TryReadHand(out HandSnapshot snap) || snap.TilesRead != 14 - 3 * snap.MeldCount)
-            return; // wait until the full concealed draw is readable (melds remove three tiles each)
+        if (!EmjBoardReader.TryReadHand(out HandSnapshot snap))
+        {
+            stableHand = null;
+            waitReason = "hand unreadable";
+            return;
+        }
+        if (snap.TilesRead != 14 - 3 * snap.MeldCount)
+        {
+            stableHand = null;
+            waitReason = $"hand incomplete: read={snap.TilesRead}, melds={snap.MeldCount}, expected={14 - 3 * snap.MeldCount}";
+            return;
+        }
+        string handKey = string.Join(",", snap.SlotIcons) + ":" + snap.MeldCount;
+        long now = Environment.TickCount64;
+        if (stableHand != handKey)
+        {
+            stableHand = handKey;
+            stableHandSince = now;
+            waitReason = "waiting for hand animation to settle";
+            return;
+        }
+        if (now - stableHandSince < 240) return;
+
+        if (EmjActuator.HasPendingDiscard)
+        {
+            waitReason = "discard handshake/acknowledgement pending";
+            if (EmjActuator.ContinueDiscard())
+            {
+                acted = true;
+                Stats.Record(AutoActionKind.Discard, "打牌入力送信");
+            }
+            return;
+        }
 
         if (!afterCall && ShantenCalculator.Calculate(snap.Counts, snap.MeldCount) == ShantenCalculator.Complete)
         {
@@ -354,11 +357,11 @@ internal sealed class AutoPlayController : IDisposable
                 return;
             }
 
-            // The drawn-win (Tsumo/Pass) panel may carry no AtkValues labels (verified live); the
-            // affirmative button is option 0 on every captured popup, so fall back to that.
+            // A complete shape alone does not identify a live, actionable Tsumo popup.
             var actions = EmjBoardReader.ReadActionOptions();
             int tsumo = FindOption(actions, EmjAction.Tsumo);
-            int option = tsumo >= 0 ? tsumo : 0;
+            int option = tsumo; // Unknown labels never authorize a guessed option.
+            if (option < 0) { waitReason = "winning hand but no Tsumo option readable"; return; }
 
             if (EmjActuator.Call(option))
             {
@@ -366,7 +369,7 @@ internal sealed class AutoPlayController : IDisposable
                 MjLog.Info($"turn: tsumo -> [11, {option}]{(tsumo < 0 ? " (unlabeled panel)" : "")} (attempt {popupAttempts}).");
                 if (popupAttempts == 1)
                     Stats.Record(AutoActionKind.Tsumo, Loc.T("act.tsumo"));
-                actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // verify next tick; re-fire if still up
+                actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // observe on later ticks; never re-send the same offer
             }
 
             return;
@@ -399,14 +402,21 @@ internal sealed class AutoPlayController : IDisposable
             return;
         }
 
-        int riichiOption = FindOption(EmjBoardReader.ReadActionOptions(), EmjAction.Riichi);
+        int riichiOption = afterCall ? -1 : FindOption(EmjBoardReader.ReadActionOptions(), EmjAction.Riichi);
 
         TurnInput input = TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired);
         if (!worker.TryGet(DecisionWorker.KeyFor(input), input, out TurnDecision decision, out _))
-            return; // computing off the framework thread; act on a later tick
+        {
+            waitReason = "decision worker pending";
+            return;
+        }
 
         if (decision.Discard < 0)
+        {
+            StopUnsafe($"decision unavailable: {decision.Reason}");
             return;
+        }
+        waitReason = "discard handshake/acknowledgement pending";
 
         if (decision.Reason != "best value" && decision.Reason != "best value + riichi")
             MjLog.Info($"turn: {decision.Reason}.");
@@ -460,7 +470,7 @@ internal sealed class AutoPlayController : IDisposable
             MjLog.Info(keepHand
                 ? $"turn: nine terminals offered, keeping the hand (kokushi shanten {kokushiShanten}) -> [11, {option}] (attempt {popupAttempts})."
                 : $"turn: nine terminals -> taking the redeal (kokushi shanten {kokushiShanten}) -> [11, {option}] (attempt {popupAttempts}).");
-            actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // verify next tick; re-fire if still up
+            actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // observe on later ticks; never re-send the same offer
         }
 
         return true;
@@ -468,14 +478,19 @@ internal sealed class AutoPlayController : IDisposable
 
     private void DoCall()
     {
-        if (popupAttempts >= MaxPopupAttempts)
-        {
-            MjLog.Warn("call: popup did not accept the fire after retries; yielding to the game timer.");
-            acted = true;
-            return;
-        }
+        if (popupAttempts >= MaxPopupAttempts) return;
 
         var options = EmjBoardReader.ReadActionOptions();
+        string optionKey = string.Join("|", options.Select(o => $"{o.Option}:{o.Label}"));
+        long now = Environment.TickCount64;
+        if (stableHand != optionKey)
+        {
+            stableHand = optionKey;
+            stableHandSince = now;
+            waitReason = "waiting for call options to settle";
+            return;
+        }
+        if (now - stableHandSince < 240) return;
         CallDecision decision = DecideCall(options);
         if (decision.Option < 0)
             return; // popup not readable yet, or nothing safe to click — wait for the next tick
@@ -486,6 +501,8 @@ internal sealed class AutoPlayController : IDisposable
         if (EmjActuator.Call(decision.Option))
         {
             popupAttempts++;
+            acted = true;
+            waitReason = "call sent once; waiting for a new state or opponent discard";
             MjLog.Info($"call: {decision.Reason} -> [11, {decision.Option}] (attempt {popupAttempts}).");
             if (popupAttempts == 1)
             {
@@ -496,7 +513,7 @@ internal sealed class AutoPlayController : IDisposable
                     win ? Loc.T("act.win") : meld ? Loc.F("act.pon", Loc.Tile(lastDiscardTile)) : Loc.T("act.pass"));
             }
 
-            actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // verify next tick; re-fire if still up
+            actAtTick = Environment.TickCount64 + PopupRetryDelayMs; // observe on later ticks; never re-send the same offer
         }
     }
 
@@ -592,8 +609,11 @@ internal sealed class AutoPlayController : IDisposable
     /// <summary>The fire value of the button doing <paramref name="action"/>, in any recognized client language, or -1.</summary>
     private static int FindOption(IReadOnlyList<ActionOption> options, EmjAction action)
     {
-        int index = EmjStrings.IndexOf(options.Select(o => o.Label).ToList(), action);
-        return index >= 0 ? options[index].Option : -1;
+        // Automatic input must never guess that an unrecognized label means Pass.
+        foreach (ActionOption option in options)
+            if (EmjStrings.Classify(option.Label) == action)
+                return option.Option;
+        return -1;
     }
 
     private static string Labels(IReadOnlyList<ActionOption> options)

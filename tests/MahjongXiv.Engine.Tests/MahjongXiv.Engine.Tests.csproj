@@ -15,6 +15,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\MahjongXiv\Core\Game\DiscardHandshake.cs" Link="Plugin\DiscardHandshake.cs" />
+  </ItemGroup>
+
   <!-- Dalamud-free plugin sources (game-string matching, tile names) compiled straight into the tests. -->
   <ItemGroup>
     <Compile Include="..\..\MahjongXiv\Core\Game\EmjStrings.cs" Link="Plugin\EmjStrings.cs" />

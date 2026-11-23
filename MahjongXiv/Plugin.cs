@@ -135,7 +135,7 @@ public sealed class Plugin : IDalamudPlugin
                 EmjClicker.Enabled = (parts.Length > 1 ? parts[1] : "on") != "off";
                 MjLog.Info(EmjClicker.Enabled
                     ? "Click-discard ON: discards simulate a click on the tile (default)."
-                    : "Click-discard OFF for this session: discards fire the callback directly.");
+                    : "Click-discard OFF: automated discards are disabled; no raw callback fallback.");
                 break;
             case "diag":
                 // Probe (agent states, event 11) plus capture (every callback the table UI fires).

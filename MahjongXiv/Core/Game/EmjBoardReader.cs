@@ -135,11 +135,14 @@ internal static unsafe class EmjBoardReader
     }
 
     /// <summary>The addon's AtkValues[0] state code (30 = our discard turn), or -1 if unavailable.</summary>
+    public static nint CurrentAddress
+        => TryGetAddon(out AtkUnitBase* addon) ? (nint)addon : 0;
+
     public static int ReadStateCode()
     {
         if (!TryGetAddon(out AtkUnitBase* addon))
             return -1;
-        return addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
+        return addon->IsReady && addon->AtkValues != null && addon->AtkValuesCount > 0 ? addon->AtkValues[0].Int : -1;
     }
 
     /// <summary>Read a string AtkValue by index (e.g. the offered-action label at [7]), or null.</summary>

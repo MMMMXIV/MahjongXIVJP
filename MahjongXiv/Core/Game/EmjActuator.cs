@@ -2,45 +2,22 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace MahjongXiv.Core.Game;
 
-/// <summary>
-/// Actuates Doman Mahjong inputs by replaying the FireCallback protocol captured from manual play.
-/// A discard is a two-call handshake: [15, iconId] selects/highlights the tile (and moves the
-/// after-draw surface from state 6 to state 30), then [7, slot] commits it. Manual play always lets
-/// the surface reach state 30 before committing, and never sends the commit in the same frame as a
-/// highlight (captured on EmjL, 2026-10-14). The bot mirrors that: highlight at 6, highlight again
-/// at 30, and commit alone on a later tick. Firing [15] and [7] in one frame was followed both
-/// times by a client crash in AgentEmj.Update ~3s later on the ranked EmjL table.
-/// Gated on the turn state so a mis-timed call cannot wedge the addon.
-/// </summary>
+/// <summary>Fail-closed, observed-state discard handshake. Never commits at state 6/28.</summary>
 internal static unsafe class EmjActuator
 {
     private const int OpHighlight = 15;
-    private const int OpDiscardCommit = 7;
     private const int OpCallOption = 11;
-
-    private const int StateAfterDraw = 6;       // self-action surface (riichi/tsumo/kan or discard)
-    private const int StateAfterCall = 28;      // post-call discard surface (verified live after a pon)
-    private const int StateDiscardTurn = 30;    // tile-selection discard surface
-
-    /// <summary>Re-send the state-6 highlight at most this often while waiting for the surface to reach 30.</summary>
-    private const int HighlightRetryMs = 400;
-
-    /// <summary>
-    /// If the surface is still at state 6 this long after the first highlight, commit there anyway
-    /// (the original same-frame protocol, verified on Emj) rather than let the turn timer run out.
-    /// </summary>
-    private const int HighlightGiveUpMs = 1200;
-
-    /// <summary>The commit waits at least this long after the state-30 highlight, so the two never share a frame.</summary>
-    private const int CommitAfterHighlightMs = 100;
-
-    private static long lastHighlightTick;
-    private static long highlightSince;
-    private static int highlightSlot = -1;
-
-    // The state-30 highlight that a commit must follow: which slot, and when.
-    private static int armedSlot = -1;
-    private static long armedTick;
+    private static readonly DiscardHandshake handshake = new();
+    public static string? Failure => handshake.Failure;
+    private static int pendingSlot = -1;
+    private static int pendingIcon;
+    public static bool HasPendingDiscard => pendingSlot >= 0;
+    public static bool ContinueDiscard() => HasPendingDiscard && Commit(pendingSlot, pendingIcon);
+    public static void Reset()
+    {
+        handshake.Reset();
+        pendingSlot = -1;
+    }
 
     /// <summary>Discard the given hand slot (0-12 hand position, 13 = drawn tile).</summary>
     public static bool DiscardSlot(int slot)
@@ -91,78 +68,39 @@ internal static unsafe class EmjActuator
 
     private static bool Commit(int slot, int iconId)
     {
-        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
+        if (Failure != null) return false;
+        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon) || !addon->IsReady
+            || addon->AtkValues == null || addon->AtkValuesCount == 0)
+            return false;
+        int state = addon->AtkValues[0].Int;
+        if (!EmjBoardReader.TryReadHand(out HandSnapshot hand)
+            || slot < 0 || slot >= hand.SlotIcons.Length || hand.SlotIcons[slot] != iconId
+            || !EmjTiles.TryFromIconId(iconId, out _, out _))
         {
-            MjLog.Warn("discard: Emj addon not present.");
+            handshake.Fail("discard target is no longer readable");
             return false;
         }
-
-        int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
-        if (state != StateDiscardTurn && state != StateAfterDraw && state != StateAfterCall)
+        string key = $"{(nint)addon:X}:{slot}:{string.Join(",", hand.SlotIcons)}:{hand.MeldCount}";
+        DiscardStep step = handshake.Next(state, key, Environment.TickCount64);
+        switch (step)
         {
-            MjLog.Warn($"discard: not our turn (state={state}, need {StateAfterDraw}, {StateAfterCall} or {StateDiscardTurn}).");
-            return false;
-        }
-
-        long now = Environment.TickCount64;
-        if (state == StateAfterDraw && iconId > 0)
-        {
-            if (slot != highlightSlot || now - lastHighlightTick > HighlightGiveUpMs + HighlightRetryMs)
-            {
-                highlightSlot = slot;
-                highlightSince = now;
-                lastHighlightTick = 0;
-            }
-
-            if (now - highlightSince < HighlightGiveUpMs)
-            {
-                // Highlight only; the commit waits for the surface to move to state 30, as in manual play.
-                if (now - lastHighlightTick >= HighlightRetryMs)
-                {
-                    lastHighlightTick = now;
-                    FireInts(addon, OpHighlight, iconId);
-                    MjLog.Debug($"discard: highlighted [15, {iconId}] at state 6; committing at state 30.");
-                }
+            case DiscardStep.Highlight:
+                pendingSlot = slot;
+                pendingIcon = iconId;
+                MjLog.Info($"discard: begin highlight slot={slot} icon={iconId} state={state} addon={(nint)addon:X}");
+                FireInts(addon, OpHighlight, iconId);
                 return false;
-            }
-
-            MjLog.Warn($"discard: still at state 6 {now - highlightSince}ms after highlighting slot {slot}; committing there.");
-        }
-
-        highlightSlot = -1;
-
-        if (state == StateDiscardTurn && iconId > 0 && (armedSlot != slot || now - armedTick > HighlightGiveUpMs))
-        {
-            // Select the tile on this tick; the commit follows alone on a later one, as in manual play.
-            FireInts(addon, OpHighlight, iconId);
-            armedSlot = slot;
-            armedTick = now;
-            return false;
-        }
-
-        if (state == StateDiscardTurn && iconId > 0 && now - armedTick < CommitAfterHighlightMs)
-            return false;
-
-        armedSlot = -1;
-
-        if (state == StateDiscardTurn && EmjClicker.Enabled)
-        {
-            if (EmjClicker.TryClickSlot(slot))
-            {
-                MjLog.Info($"discard: clicked slot {slot} (icon {iconId}, state {state}).");
+            case DiscardStep.Click:
+                if (!EmjClicker.Enabled || !EmjClicker.TryClickSlot(slot))
+                {
+                    handshake.Fail("verified tile click unavailable; raw callback fallback disabled");
+                    return false;
+                }
+                MjLog.Info($"discard: input sent slot={slot} icon={iconId}; awaiting state acknowledgement");
                 return true;
-            }
-
-            MjLog.Warn($"discard: click on slot {slot} unavailable; falling back to the callback.");
+            default:
+                return false;
         }
-
-        // States 6 (after the give-up) and 28 keep the original same-frame handshake.
-        if (iconId > 0 && state != StateDiscardTurn)
-            FireInts(addon, OpHighlight, iconId);
-        FireInts(addon, OpDiscardCommit, slot);
-
-        MjLog.Info($"discard: fired [7, {slot}] (icon {iconId}, state {state}).");
-        return true;
     }
 
     /// <summary>
@@ -171,99 +109,42 @@ internal static unsafe class EmjActuator
     /// </summary>
     public static bool Call(int option)
     {
-        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
+        if (Failure != null || !EmjBoardReader.TryGetAddon(out AtkUnitBase* addon) || !addon->IsReady)
         {
             MjLog.Warn("call: Emj addon not present.");
             return false;
         }
 
-        int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
+        int state = addon->AtkValues != null && addon->AtkValuesCount > 0 ? addon->AtkValues[0].Int : -1;
         if (state is not (6 or 15 or 30))
         {
             MjLog.Warn($"call: not a call/self-action state (state={state}).");
             return false;
         }
 
+        if (option < 0 || !EmjBoardReader.ReadActionOptions().Any(o => o.Option == option))
+            return false;
+        MjLog.Info($"call: begin [11, {option}] state={state} addon={(nint)addon:X}");
         FireInts(addon, OpCallOption, option);
         MjLog.Info($"call: fired [11, {option}] (state {state}).");
         return true;
     }
 
-    /// <summary>
-    /// Press the button that moves a result screen on, the way a mouse click would (the addon runs its
-    /// own handler, timers included). Every visible mahjong window ("Emj…") is searched, since the
-    /// result may sit in its own window. A button labelled "次へ"/"Next"/"OK" is preferred; with
-    /// <paramref name="allowLeave"/> (final results only) "退室"/"Leave" also counts; with
-    /// <paramref name="allowSingle"/> a lone unlabelled button is taken when nothing else matches.
-    /// </summary>
-    public static bool ClickAdvance(int state, bool allowLeave, bool allowSingle, out bool clickedLeave, bool strict = false)
-    {
-        clickedLeave = false;
-        var all = new List<(nint Addon, string Name, UiButton Button)>();
-        foreach ((string name, nint unit) in UiButtons.VisibleAddons("Emj"))
-            foreach (UiButton b in UiButtons.Find((AtkUnitBase*)unit))
-                all.Add((unit, name, b));
-
-        // Never consider a button that could leave the table, whatever else matches.
-        all.RemoveAll(x => EmjStrings.IndexOfTerm([x.Button.Text], EmjStrings.LeaveButtonTerms) >= 0);
-        var labels = all.Select(x => x.Button.Text).ToList();
-        int index = EmjStrings.IndexOfTerm(labels, strict ? EmjStrings.StrictAdvanceButtonTerms : EmjStrings.AdvanceButtonTerms);
-        if (index < 0 && allowSingle && all.Count == 1)
-            index = 0;
-
-        if (index < 0)
-        {
-            MjLog.Info($"advance: no button identified at state {state} among [{string.Join(", ", all.Select(x => $"{x.Name}#{x.Button.NodeId} '{x.Button.Text}'"))}].");
-            return false;
-        }
-
-        (nint addon, string addonName, UiButton button) = all[index];
-        UiButtons.Click((AtkUnitBase*)addon, button);
-        MjLog.Info($"advance: clicked {addonName}#{button.NodeId} '{button.Text}' (state {state}).");
-        return true;
-    }
-
-    /// <summary>Fire the captured advance opcode for the current result / new-hand state (test only).</summary>
+    /// <summary>Legacy diagnostic command: raw result/acknowledgement injection is disabled.</summary>
     public static bool Advance()
     {
-        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
-        {
-            MjLog.Warn("advance: Emj addon not present.");
-            return false;
-        }
-
-        int state = addon->AtkValues != null ? addon->AtkValues[0].Int : -1;
-        int op = state switch
-        {
-            29 => 14, // agari / result modal
-            32 => 17, // end-of-hand transitional
-            2 => 9,   // new-hand acknowledge
-            _ => -1,
-        };
-
-        if (op < 0)
-        {
-            MjLog.Warn($"advance: nothing to advance (state={state}).");
-            return false;
-        }
-
-        FireOne(addon, op);
-        MjLog.Info($"advance: fired [{op}] (state {state}).");
-        return true;
+        MjLog.Warn("advance: disabled; use the game's Next button or wait for its timer.");
+        return false;
     }
 
     private static void FireInts(AtkUnitBase* addon, int op, int arg)
     {
         AtkValue* values = stackalloc AtkValue[2];
+        values[0] = default;
+        values[1] = default;
         values[0].SetInt(op);
         values[1].SetInt(arg);
         addon->FireCallback(2, values, true);
     }
 
-    private static void FireOne(AtkUnitBase* addon, int op)
-    {
-        AtkValue* values = stackalloc AtkValue[1];
-        values[0].SetInt(op);
-        addon->FireCallback(1, values, true);
-    }
 }

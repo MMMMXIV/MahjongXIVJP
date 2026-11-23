@@ -49,7 +49,7 @@ jobs:
       - name: Run engine tests
         shell: pwsh
         run: |
-          dotnet test tests/MahjongXiv.Engine.Tests/MahjongXiv.Engine.Tests.csproj -c Release --no-restore
+          dotnet test tests/MahjongXiv.Engine.Tests/MahjongXiv.Engine.Tests.csproj -c Release --no-restore --logger trx --results-directory TestResults
           if ($LASTEXITCODE -ne 0) { throw 'Engine tests failed' }
 
       - name: Validate package and update repository metadata
@@ -85,7 +85,7 @@ jobs:
           $entry.DownloadLinkUpdate = $uri
           $entry.DownloadLinkTesting = $uri
           $entry.LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-          $entry.Changelog = 'FireCallbackキャプチャ用フックの戻り値と引数型をDalamud API 15の署名に合わせて修正。元の関数の戻り値を保持し、フック検証エラーを解消。0.5.1.0の誤退出対策を維持。'
+          $entry.Changelog = '状態6/28の強制打牌・不明イベントへのフォールバック・同一鳴きの再送を廃止。配牌/結果画面はゲーム側の進行を尊重。状態確認・安全停止・診断ログと回帰テストを追加。実対局でのクラッシュ解消は継続確認中。'
           ConvertTo-Json -InputObject $manifest -Depth 16 | Set-Content -Path repo.json -Encoding utf8
 
           Write-Host "Version: $version"
@@ -109,3 +109,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
           git push origin HEAD:main
           if ($LASTEXITCODE -ne 0) { throw 'Push failed' }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+
+      - name: Upload verified package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MahjongXIVJP-package
+          path: ${{ env.PACKAGE_PATH }}
