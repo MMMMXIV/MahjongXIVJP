@@ -36,7 +36,7 @@ public static class CallPolicy
     /// </summary>
     public static bool ShouldPon(CallInput input, EvalOptions options)
     {
-        bool shipped = ShouldPon(input);
+        bool shipped = ShouldPon(input) || (options.EagerYakuhaiPon && EagerYakuhai(input));
         if (!options.SmartPon || input.Tile < 0 || input.Counts13[input.Tile] < 2)
             return shipped;
 
@@ -83,6 +83,39 @@ public static class CallPolicy
 
         // A margin: opening the hand also gives up defensive flexibility the model does not price.
         return best > pass * 1.1 + 30;
+    }
+
+    /// <summary>
+    /// Yakuhai pon that does not worsen the hand. The shipped rule needs the pon to cut the shanten,
+    /// which fails whenever the yakuhai pair is the hand's only pair (the pair becomes the set, the head
+    /// is lost). A strong player still calls it: it fixes the yaku and keeps the speed. Allowed up to
+    /// 3-shanten and not into a riichi.
+    /// </summary>
+    public static bool EagerYakuhai(CallInput input)
+    {
+        int tile = input.Tile;
+        if (tile < 0 || input.Counts13[tile] < 2 || input.OpponentRiichi || !IsYakuhai(tile, input.Context))
+            return false;
+
+        IReadOnlyList<Meld> melds = input.Melds;
+        int current = ShantenCalculator.Calculate(input.Counts13, melds.Count);
+        if (current > 3)
+            return false;
+
+        Span<int> after = stackalloc int[Tiles.TypeCount];
+        input.Counts13.CopyTo(after);
+        after[tile] -= 2;
+        int best = int.MaxValue;
+        for (int d = 0; d < Tiles.TypeCount; d++)
+        {
+            if (after[d] == 0)
+                continue;
+            after[d]--;
+            best = Math.Min(best, ShantenCalculator.Calculate(after, melds.Count + 1));
+            after[d]++;
+        }
+
+        return best <= current;
     }
 
     public static bool ShouldPon(
