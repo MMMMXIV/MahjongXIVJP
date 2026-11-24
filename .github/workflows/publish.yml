@@ -88,7 +88,7 @@ jobs:
           $entry.DownloadLinkUpdate = $uri
           $entry.DownloadLinkTesting = $uri
           $entry.LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-          $entry.Changelog = 'リーチ宣言直後に宣言牌よりツモ切りを優先し、無効なツモ牌ボタンを選んで安全停止する不具合を修正。宣言時に決めた牌を優先し、6件の回帰テストを追加。無効ボタン保護と強制コールバック禁止を維持。'
+          $entry.Changelog = '日本語コンテンツファインダーの「参加」ボタンを認識できず自動再申請が失敗する不具合を修正。完全一致・候補一意の判定で「参加辞退」等の誤操作を防止。打牌・リーチの安全対策を維持。'
           ConvertTo-Json -InputObject $manifest -Depth 16 | Set-Content -Path repo.json -Encoding utf8
 
           Write-Host "Version: $version"

@@ -80,7 +80,24 @@ internal static class EmjStrings
     public static readonly string[] YesButtonTerms = ["はい", "Yes", "OK", "Ja", "Oui"];
 
     /// <summary>Labels of the Duty Finder's join button.</summary>
-    public static readonly string[] JoinButtonTerms = ["参加申請", "Join", "Beitreten", "S'inscrire", "Participer"];
+    public static readonly string[] JoinButtonTerms = ["参加", "参加申請", "Join", "Beitreten", "S'inscrire", "Participer"];
+
+    /// <summary>A unique exact join label; never match withdrawal/cancel text by substring.</summary>
+    public static int FindJoinButton(IReadOnlyList<string> labels)
+    {
+        int match = -1;
+        for (int i = 0; i < labels.Count; i++)
+        {
+            bool known = false;
+            foreach (string term in JoinButtonTerms)
+                if (string.Equals(labels[i].Trim(), term, StringComparison.OrdinalIgnoreCase))
+                    known = true;
+            if (!known) continue;
+            if (match >= 0) return -1; // ambiguous UI: leave it alone
+            match = i;
+        }
+        return match;
+    }
 
     /// <summary>Labels of the duty-ready popup's commence button.</summary>
     public static readonly string[] CommenceButtonTerms = ["突入", "Commence", "Betreten", "Entrer"];

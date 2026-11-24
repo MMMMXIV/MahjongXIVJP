@@ -240,16 +240,17 @@ internal sealed unsafe class AutoQueue : IDisposable
 
     private static void PressJoin(AtkUnitBase* finder)
     {
-        UiButton? join = UiButtons.FindByText(finder, EmjStrings.JoinButtonTerms);
-        if (join is { } button)
+        List<UiButton> buttons = UiButtons.Find(finder);
+        int index = EmjStrings.FindJoinButton(buttons.Select(b => b.Text).ToList());
+        if (index >= 0)
         {
+            UiButton button = buttons[index];
             UiButtons.Click(finder, button);
             MjLog.Info($"requeue: pressed '{button.Text}' in the Duty Finder.");
             return;
         }
 
         // No raw callback: inside a duty the Duty Finder's buttons differ (e.g. leave the duty).
-        List<UiButton> buttons = UiButtons.Find(finder);
         MjLog.Warn($"requeue: join button not identified among [{UiButtons.Describe(buttons)}]; not pressing anything.");
     }
 
