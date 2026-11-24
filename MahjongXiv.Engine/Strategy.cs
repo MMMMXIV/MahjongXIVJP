@@ -720,9 +720,18 @@ public static class StrategicPolicy
         {
             foreach (OpponentView o in opponents)
             {
-                double tenpai = DefenseModel.TenpaiChance(o, wall);
+                double tenpai = input.Options.TenpaiModelV2
+                    ? TenpaiModel.Chance(o, wall, input.Game, input.Context.RoundWind)
+                    : DefenseModel.TenpaiChance(o, wall);
+                if (input.Options.TenpaiModelV2 && !o.Riichi && tenpai < input.Options.TenpaiThreshold)
+                    tenpai = 0;
                 if (tenpai > 0)
-                    threats.Add((o, tenpai, util.LossTo(o.Seat, ThreatValue(o, scoring.Rules))));
+                {
+                    double value = ThreatValue(o, scoring.Rules);
+                    if (!o.Riichi && input.Options.TenpaiModelV2)
+                        value = value / 0.7 * input.Options.OpenThreatScale; // open-hand value relative to a riichi
+                    threats.Add((o, tenpai, util.LossTo(o.Seat, value)));
+                }
             }
         }
         else

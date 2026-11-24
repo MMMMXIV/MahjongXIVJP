@@ -56,6 +56,7 @@ public sealed record EvalOptions
         RiichiJudgement = true,
         PlacementAware = true,
         SmartPon = true,
+        TenpaiModelV2 = true,
     };
 
     /// <summary>
@@ -86,6 +87,15 @@ public sealed record EvalOptions
     /// and slightly positive with the strategic layer, and it is what a strong player does.
     /// </summary>
     public bool EagerYakuhaiPon { get; init; } = true;
+
+    /// <summary>Estimate non-riichi opponents' tenpai chance with the fitted <see cref="TenpaiModel"/> instead of the meld-count rule.</summary>
+    public bool TenpaiModelV2 { get; init; }
+
+    /// <summary>With <see cref="TenpaiModelV2"/>: non-riichi opponents below this tenpai chance are ignored.</summary>
+    public double TenpaiThreshold { get; init; } = 0.3;
+
+    /// <summary>With <see cref="TenpaiModelV2"/>: value of dealing into an open hand, as a share of a riichi hand.</summary>
+    public double OpenThreatScale { get; init; } = 0.4;
 
     /// <summary>Multiplier on the per-turn chance that someone else ends the hand (tuning knob).</summary>
     public double OtherEndScale { get; init; } = 1.0;

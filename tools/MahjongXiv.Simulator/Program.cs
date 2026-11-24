@@ -26,6 +26,14 @@ SimRules rules = Policies.ConfigureTable(pairs);
 Policies.Configure(pairs);
 Console.WriteLine($"table: {(rules.Rounds == 1 ? "east-only" : "east+south")}, scoring {rules.Scoring.Rules}{(rules.Scoring.KiriageMangan ? " (kiriage)" : "")}");
 
+if (all.Length > 0 && all[0] == "fit")
+{
+    int fm = all.Length > 1 && int.TryParse(all[1], out int x1) ? x1 : 200;
+    int fs = all.Length > 2 && int.TryParse(all[2], out int x2) ? x2 : 42;
+    TenpaiFit.Run(fm, fs, rules, i => MatchRng(fs, i));
+    return;
+}
+
 if (ab)
     RunAb(matches, seed, rules);
 else

@@ -106,6 +106,44 @@ internal sealed record HandOutcome
 /// </summary>
 internal static class HandSimulator
 {
+    /// <summary>
+    /// Data collection hook for the fit command: called before every ordinary turn decision with the
+    /// decision input and, per seat, whether that player could win by ron right now (tenpai with a yaku
+    /// on at least one wait). Null in normal runs.
+    /// </summary>
+    [ThreadStatic] public static Action<TurnInput, bool[]>? Collector;
+
+    private static bool[] RonReady(SimPlayer[] players, HandSetup setup)
+    {
+        var ready = new bool[4];
+        for (int s = 0; s < 4; s++)
+        {
+            SimPlayer p = players[s];
+            if (ShantenCalculator.Calculate(p.Counts, p.Melds.Count) != 0)
+                continue;
+            for (int w = 0; w < Tiles.TypeCount && !ready[s]; w++)
+            {
+                if (p.Counts[w] >= 4)
+                    continue;
+                p.Counts[w]++;
+                if (ShantenCalculator.Calculate(p.Counts, p.Melds.Count) == ShantenCalculator.Complete)
+                {
+                    var ctx = new WinContext
+                    {
+                        WinTile = w,
+                        Riichi = p.Riichi,
+                        SeatWind = (s - setup.Dealer + 4) % 4,
+                        RoundWind = setup.RoundWind,
+                    };
+                    ready[s] = ScoreCalculator.Score(p.Counts, p.Melds, ctx, s == setup.Dealer, setup.Scoring) is not null;
+                }
+                p.Counts[w]--;
+            }
+        }
+
+        return ready;
+    }
+
     [ThreadStatic] private static int calibSeat;
     [ThreadStatic] private static bool calibRiichi;
     [ThreadStatic] private static double calibPredicted;
@@ -182,7 +220,9 @@ internal static class HandSimulator
             else
             {
                 bool riichiLegal = p.Melds.Count == 0 && setup.Scores[turn] + deltas[turn] >= 1000 && wall.Remaining >= 4;
-                TurnDecision decision = Decide(agents, turn, BuildInput(players, turn, setup, wall, Scores(), pot, riichiLegal), stats);
+                TurnInput turnInput = BuildInput(players, turn, setup, wall, Scores(), pot, riichiLegal);
+                Collector?.Invoke(turnInput, RonReady(players, setup));
+                TurnDecision decision = Decide(agents, turn, turnInput, stats);
                 if (decision.Discard < 0 || p.Counts[decision.Discard] == 0)
                 {
                     discardType = TileId.Type(drawId); // defensive fallback; should not happen
