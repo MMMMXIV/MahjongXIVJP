@@ -369,24 +369,30 @@ internal sealed class AutoPlayController : IDisposable
 
         BoardSnapshot? board = EmjBoardReader.TryReadBoard();
 
-        // In riichi the hand is locked: the win/kan cases were handled above, so tsumogiri the draw.
-        if (board?.OwnRiichi == true)
+        RiichiDiscardRoute route = RiichiDiscardRouting.Select(riichiFired, riichiTile, board?.OwnRiichi == true);
+        if (route == RiichiDiscardRoute.InvalidDeclaration)
+        {
+            StopUnsafe("riichi declaration discard target is missing");
+            return;
+        }
+        // The badge can light up immediately after [11, riichi], before the declaration tile is cut.
+        // Finish that discard first; only subsequent turns may use automatic tsumogiri.
+        if (route == RiichiDiscardRoute.DeclarationTile)
+        {
+            waitReason = $"riichi declaration discard pending: {Tiles.Name(riichiTile)}";
+            if (EmjActuator.DiscardTile(riichiTile))
+            {
+                acted = true;
+                Stats.Record(AutoActionKind.Discard, Loc.F("act.discard", Loc.Tile(riichiTile)));
+            }
+            return;
+        }
+        if (route == RiichiDiscardRoute.DrawnTile)
         {
             if (EmjActuator.DiscardSlot(13))
             {
                 acted = true;
                 Stats.Record(AutoActionKind.Discard, Loc.T("act.tsumogiri"));
-            }
-            return;
-        }
-
-        // After declaring riichi, cut exactly the tile the declaration was decided with.
-        if (riichiFired && riichiTile >= 0)
-        {
-            if (EmjActuator.DiscardTile(riichiTile))
-            {
-                acted = true;
-                Stats.Record(AutoActionKind.Discard, Loc.F("act.discard", Loc.Tile(riichiTile)));
             }
             return;
         }

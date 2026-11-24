@@ -88,7 +88,7 @@ jobs:
           $entry.DownloadLinkUpdate = $uri
           $entry.DownloadLinkTesting = $uri
           $entry.LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-          $entry.Changelog = '0.5.3.1で牌コンテナをボタンと誤判定して打牌が安全停止する不具合を修正。内側のボタンを検証し、停止理由の詳細と8件の回帰テストを追加。危険なコールバック代替禁止は維持。'
+          $entry.Changelog = 'リーチ宣言直後に宣言牌よりツモ切りを優先し、無効なツモ牌ボタンを選んで安全停止する不具合を修正。宣言時に決めた牌を優先し、6件の回帰テストを追加。無効ボタン保護と強制コールバック禁止を維持。'
           ConvertTo-Json -InputObject $manifest -Depth 16 | Set-Content -Path repo.json -Encoding utf8
 
           Write-Host "Version: $version"

@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\MahjongXiv\Core\Game\RiichiDiscardRoute.cs" Link="Plugin\RiichiDiscardRoute.cs" />
     <Compile Include="..\..\MahjongXiv\Core\Game\TileButtonResolver.cs" Link="Plugin\TileButtonResolver.cs" />
     <Compile Include="..\..\MahjongXiv\Core\Game\RiverProgress.cs" Link="Plugin\RiverProgress.cs" />
     <Compile Include="..\..\MahjongXiv\Core\Game\DiscardHandshake.cs" Link="Plugin\DiscardHandshake.cs" />
