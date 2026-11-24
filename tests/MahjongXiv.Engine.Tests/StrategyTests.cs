@@ -268,3 +268,16 @@ public class SmartPonTests
         Assert.False(CallPolicy.ShouldPon(input, Smart));
     }
 }
+
+public class PonFromTripletTests
+{
+    [Fact]
+    public void NeverPonsOutOfAConcealedTriplet()
+    {
+        // Three chun in hand: the shipped rule would see a yakuhai pon, but calling breaks the set.
+        int[] counts = Tiles.ParseCounts("13m468p2479s777z");
+        var input = new CallInput { Counts13 = counts, Tile = Tiles.Index("7z"), Context = new EvalContext { SeatWind = 1 } };
+        Assert.False(CallPolicy.ShouldPon(input, EvalOptions.Default));
+        Assert.False(CallPolicy.ShouldPon(input, EvalOptions.Strategic));
+    }
+}

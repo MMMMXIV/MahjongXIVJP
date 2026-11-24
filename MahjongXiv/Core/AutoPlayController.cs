@@ -238,7 +238,24 @@ internal sealed class AutoPlayController : IDisposable
             offerSince = 0;
         }
 
-        long unresolvedSince = state == 15 ? (offerSince == 0 ? now : offerSince) : stateSince;
+        // Once our single answer is sent, nothing more is sent to this popup, so there is nothing unsafe
+        // left to stop: the game's own timer moves the table on. A different popup appearing meanwhile
+        // (e.g. a second question after a pon) is recorded so it can be supported.
+        if (state == 15 && acted)
+        {
+            var now15 = EmjBoardReader.ReadActionOptions();
+            string key15 = string.Join("|", now15.Select(o => $"{o.Option}:{o.Label}"));
+            if (now15.Count > 0 && key15 != answeredOfferKey && key15 != loggedFollowUpKey)
+            {
+                loggedFollowUpKey = key15;
+                MjLog.Warn($"call: another popup after our answer (left to the game): [{string.Join(" | ", now15.Select(o => $"#{o.Option} '{o.Label}'"))}].");
+                EmjAddonDumper.DumpValues();
+            }
+        }
+
+        long unresolvedSince = state == 15
+            ? (offerSince == 0 || acted ? now : offerSince)
+            : stateSince;
         if (!stuckWarned && state is 2 or 6 or 15 or 28 or 30 && now - unresolvedSince > StuckWarnMs)
         {
             stuckWarned = true;
@@ -543,6 +560,10 @@ internal sealed class AutoPlayController : IDisposable
     /// <summary>When the current call popup first showed options in this state (0 = none on screen).</summary>
     private long offerSince;
 
+    /// <summary>The option set we answered, and the last follow-up popup already logged.</summary>
+    private string? answeredOfferKey;
+    private string? loggedFollowUpKey;
+
     private void DoCall()
     {
         if (popupAttempts >= MaxPopupAttempts) return;
@@ -586,6 +607,7 @@ internal sealed class AutoPlayController : IDisposable
 
         if (EmjActuator.Call(decision.Option))
         {
+            answeredOfferKey = optionKey;
             popupAttempts++;
             acted = true;
             waitReason = "call sent once; waiting for a new state or opponent discard";

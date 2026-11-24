@@ -36,6 +36,12 @@ public static class CallPolicy
     /// </summary>
     public static bool ShouldPon(CallInput input, EvalOptions options)
     {
+        // Never pon out of a concealed triplet: it breaks a finished set for nothing, and with a red
+        // five among the copies the table asks a second question (which copies to use) that the live
+        // driver does not answer.
+        if (input.Tile >= 0 && input.Counts13[input.Tile] >= 3)
+            return false;
+
         bool shipped = ShouldPon(input) || (options.EagerYakuhaiPon && EagerYakuhai(input));
         if (!options.SmartPon || input.Tile < 0 || input.Counts13[input.Tile] < 2)
             return shipped;
