@@ -522,37 +522,46 @@ internal sealed class AutoPlayController : IDisposable
     private CallDecision MaybeUpgradeToPon(IReadOnlyList<ActionOption> options, CallDecision pass)
     {
         int pon = FindOption(options, EmjAction.Pon);
-        if (pon < 0 || lastDiscardTile < 0)
+        if (pon < 0)
             return pass;
+        if (lastDiscardTile < 0)
+        {
+            MjLog.Info("pon: offered, but the discarded tile is not known yet; passing.");
+            return pass;
+        }
 
         if (!EmjBoardReader.TryReadHand(out HandSnapshot snap) || snap.TilesRead != 13 - 3 * snap.MeldCount)
+        {
+            MjLog.Info($"pon: offered on {Tiles.Name(lastDiscardTile)}, but the hand did not read fully; passing.");
             return pass;
+        }
+
+        if (snap.Counts[lastDiscardTile] < 2)
+        {
+            // We hold fewer than two of the tracked discard: the tracked tile is probably not the one offered.
+            MjLog.Warn($"pon: offered, but we hold {snap.Counts[lastDiscardTile]} of the tracked discard {Tiles.Name(lastDiscardTile)}; passing.");
+            return pass;
+        }
 
         BoardSnapshot? board = EmjBoardReader.TryReadBoard();
-        bool take;
-        if (Plugin.Cfg.StrategicAi)
-        {
-            // Priced pon: a one-off evaluation (tens of milliseconds at most) when a call is offered.
-            TurnInput view = TableContext.BuildTurnInput(snap, board, riichiAvailable: false);
-            take = CallPolicy.ShouldPon(new CallInput
-            {
-                Counts13 = snap.Counts,
-                Melds = snap.Melds,
-                Tile = lastDiscardTile,
-                Context = view.Context,
-                OpponentRiichi = board?.AnyOpponentRiichi ?? false,
-                Seen = view.Seen,
-                Opponents = view.Opponents,
-                Game = view.Game,
-            }, EvalOptions.Strategic);
-        }
-        else
-        {
-            take = CallPolicy.ShouldPon(
-                snap.Counts, snap.Melds, lastDiscardTile,
-                TableContext.BuildEvalContext(snap, board), board?.AnyOpponentRiichi ?? false);
-        }
 
+        // One decision path for both AIs; the options pick the rule (Default includes the yakuhai pon
+        // that only keeps the shanten; Strategic also prices the call). Priced pons cost at most tens of
+        // milliseconds, once per offer.
+        TurnInput view = TableContext.BuildTurnInput(snap, board, riichiAvailable: false);
+        bool take = CallPolicy.ShouldPon(new CallInput
+        {
+            Counts13 = snap.Counts,
+            Melds = snap.Melds,
+            Tile = lastDiscardTile,
+            Context = view.Context,
+            OpponentRiichi = board?.AnyOpponentRiichi ?? false,
+            Seen = view.Seen,
+            Opponents = view.Opponents,
+            Game = view.Game,
+        }, Plugin.Cfg.StrategicAi ? EvalOptions.Strategic : EvalOptions.Default);
+
+        MjLog.Info($"pon: {(take ? "taking" : "passing")} {Tiles.Name(lastDiscardTile)} (hand {snap.Notation}, shanten {ShantenCalculator.Calculate(snap.Counts, snap.MeldCount)}).");
         return take ? new CallDecision(pon, $"pon {Tiles.Name(lastDiscardTile)}") : pass;
     }
 

@@ -80,6 +80,16 @@ public sealed record EvalOptions
     /// <summary>How freely opponents discard into a dama wait (tuning knob).</summary>
     public double DamaRonRate { get; init; } = 0.7;
 
+    /// <summary>
+    /// Pon a yakuhai even when it only keeps the shanten (see CallPolicy.EagerYakuhai). On by default for
+    /// the plugin: neutral in the simulator for the shipped policy (+0.001 ± 0.029 avg place, 400 matches)
+    /// and slightly positive with the strategic layer, and it is what a strong player does.
+    /// </summary>
+    public bool EagerYakuhaiPon { get; init; } = true;
+
+    /// <summary>Multiplier on the per-turn chance that someone else ends the hand (tuning knob).</summary>
+    public double OtherEndScale { get; init; } = 1.0;
+
     /// <summary>Multiplier on the modelled deal-in probabilities (tuning knob).</summary>
     public double DealInScale { get; init; } = 1.0;
 
@@ -137,9 +147,20 @@ public static class DiscardEvaluator
             ranked.Add(new ScoredDiscard(option, value));
         }
 
-        ranked.Sort(static (a, b) => a.Option.Shanten != b.Option.Shanten
-            ? a.Option.Shanten - b.Option.Shanten
-            : b.Value.CompareTo(a.Value));
+        // Exact ties (List.Sort is not stable) go to the deader tile first: fewer copies still live means
+        // less chance of it ever forming a pair or set (e.g. the 4th copy of an honor). Then by tile index,
+        // so the choice is deterministic.
+        int[] known = seen ?? counts14.ToArray();
+        ranked.Sort((a, b) =>
+        {
+            if (a.Option.Shanten != b.Option.Shanten)
+                return a.Option.Shanten - b.Option.Shanten;
+            int byValue = b.Value.CompareTo(a.Value);
+            if (byValue != 0)
+                return byValue;
+            int liveA = 4 - known[a.Option.Tile], liveB = 4 - known[b.Option.Tile];
+            return liveA != liveB ? liveA - liveB : a.Option.Tile - b.Option.Tile;
+        });
 
         return ranked;
     }

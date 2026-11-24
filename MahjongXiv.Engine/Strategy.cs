@@ -741,7 +741,7 @@ public static class StrategicPolicy
     private static (double OtherEnd, double FutureDanger) Hazards(List<(OpponentView Opp, double Tenpai, double Loss)> threats, EvalOptions opts)
     {
         int riichiThreats = threats.Count(t => t.Opp.Riichi);
-        double otherEnd = 0.03 + 0.045 * riichiThreats + 0.02 * (threats.Count - riichiThreats);
+        double otherEnd = (0.03 + 0.045 * riichiThreats + 0.02 * (threats.Count - riichiThreats)) * opts.OtherEndScale;
         double futureDanger = 0;
         foreach (var t in threats)
             futureDanger += t.Tenpai * 0.045 * opts.DealInScale;

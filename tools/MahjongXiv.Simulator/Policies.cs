@@ -68,6 +68,8 @@ internal static class Policies
                 "smartpon" => opts with { SmartPon = On(kv[1]) },
                 "riichiron" => opts with { RiichiRonRate = double.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture) },
                 "damaron" => opts with { DamaRonRate = double.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture) },
+                "yakuhaipon" => opts with { EagerYakuhaiPon = On(kv[1]) },
+                "otherend" => opts with { OtherEndScale = double.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture) },
                 "dealin" => opts with { DealInScale = double.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture) },
                 _ => throw new ArgumentException($"unknown candidate option '{kv[0]}'"),
             };

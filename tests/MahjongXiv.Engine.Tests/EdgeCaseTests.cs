@@ -117,3 +117,34 @@ public class EdgeCaseTests
         Assert.True(Gap(aka) > Gap(new int[34]));
     }
 }
+
+public class DeadTileTests
+{
+    [Fact]
+    public void CutsTheFourthCopyOfAnHonorWhenTheOthersAreVisible()
+    {
+        // Three haku already visible; the drawn 4th one can never pair or set: cut it.
+        foreach (string h in new[] { "234m67m345p3478s5z", "1m234m67m345p347s5z", "9p234m67m345p347s5z" })
+        {
+            int[] hand = Tiles.ParseCounts(h);
+            int[] seen = (int[])hand.Clone();
+            seen[Tiles.Index("5z")] = 4;
+            var d = TurnPolicy.Decide(new TurnInput { Counts14 = hand, Seen = seen, Context = new EvalContext { SeatWind = 1 } });
+            Assert.Equal(Tiles.Index("5z"), d.Discard);
+        }
+    }
+
+    [Fact]
+    public void ExactTiesPreferTheDeaderTile()
+    {
+        // Two isolated tiles with the same value: the one with fewer live copies goes first.
+        int[] hand = Tiles.ParseCounts("234m67m345p347s9p5z");
+        int[] seen = (int[])hand.Clone();
+        seen[Tiles.Index("9p")] = 3; // two more 9p visible
+        var ranked = DiscardEvaluator.Rank(hand, null, seen, new EvalContext { SeatWind = 1 });
+        int i9p = ranked.FindIndex(r => r.Option.Tile == Tiles.Index("9p"));
+        int i5z = ranked.FindIndex(r => r.Option.Tile == Tiles.Index("5z"));
+        if (ranked[i9p].Value == ranked[i5z].Value)
+            Assert.True(i9p < i5z);
+    }
+}
