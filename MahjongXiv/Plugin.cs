@@ -36,6 +36,8 @@ public sealed class Plugin : IDalamudPlugin
 
     internal AutoQueue Queue { get; }
 
+    internal MatchObserver Match { get; }
+
     /// <summary>The one throttled live-board read shared by the window and the overlay.</summary>
     internal LiveBoard Board { get; } = new();
 
@@ -55,6 +57,7 @@ public sealed class Plugin : IDalamudPlugin
 
         AutoPlay = new AutoPlayController();
         Queue = new AutoQueue(AutoPlay);
+        Match = new MatchObserver();
         captureLogger = new EmjCaptureLogger();
 
         mainWindow = new MainWindow(this);
@@ -88,6 +91,7 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.Dispose();
 
         Queue.Dispose();
+        Match.Dispose();
         AutoPlay.Dispose();
         captureLogger.Dispose();
         agentProbe.Dispose();

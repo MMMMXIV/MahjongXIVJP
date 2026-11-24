@@ -225,6 +225,24 @@ internal static unsafe class EmjAddonDumper
         if (board.OpponentMeldTiles.Count > 0)
             MjLog.Info($"  opponent meld tiles: {string.Join(" ", board.OpponentMeldTiles.Select(Engine.Tiles.Name))}");
 
+        // Per-seat melds (seat = panel order, 0 = us) — check that each pon/chi shows under the right player.
+        for (int s = 0; s < board.SeatMelds.Count; s++)
+        {
+            string name = s < board.Panels.Count ? board.Panels[s].Name : "?";
+            string melds = board.SeatMelds[s].Count == 0 ? "-" : string.Join(" ", board.SeatMelds[s].Select(m => m.ToString()));
+            MjLog.Info($"  melds seat {s} ({name}): {melds}");
+        }
+
+        int riverTotal = board.Rivers.Sum(r => r.Count);
+        MjLog.Info($"  wall: rivers {riverTotal} tiles, kans {board.VisibleKans} -> live draws left ~{Engine.TableMath.LiveDrawsLeft(riverTotal, board.VisibleKans, drawPending: false)} (minus 1 while someone holds a drawn tile)");
+
+        if (Plugin.Instance?.Match is { } match)
+        {
+            MatchInfo m = match.Snapshot();
+            string hand = m.HandNumber >= 0 ? $"{(m.HandNumber < 4 ? "East" : "South")} {m.HandNumber % 4 + 1}" : "unknown (joined mid-match)";
+            MjLog.Info($"  match: hand {hand}, honba {m.Honba}, riichi sticks {m.RiichiSticks}, {m.TotalHands} dealer turns, counters {(m.CountersKnown ? "tracked from the start" : "lower bounds")}, riichi river index [{string.Join(", ", m.RiichiRiverIndex)}]");
+        }
+
         if (EmjBoardReader.TryReadHand(out HandSnapshot snap) && snap.TilesRead > 0)
         {
             int[] seen = board.BuildSeen(snap.Counts, snap.Melds);

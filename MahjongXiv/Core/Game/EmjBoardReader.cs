@@ -49,6 +49,23 @@ internal sealed class BoardSnapshot
     public required IReadOnlyList<IReadOnlyList<int>> Rivers { get; init; }
     public required IReadOnlyList<int> DoraIndicators { get; init; }
     public required IReadOnlyList<int> OpponentMeldTiles { get; init; }
+
+    /// <summary>Melds per seat in panel order (0 = us), classified slot by slot; a slot that does not read as a meld is skipped.</summary>
+    public IReadOnlyList<IReadOnlyList<Meld>> SeatMelds { get; init; } = [[], [], [], []];
+
+    /// <summary>Kans of any kind visible on the table (four-tile melds), for the wall count.</summary>
+    public int VisibleKans
+    {
+        get
+        {
+            int kans = 0;
+            foreach (IReadOnlyList<Meld> melds in SeatMelds)
+                foreach (Meld m in melds)
+                    if (m.Kind == MeldKind.Kan)
+                        kans++;
+            return kans;
+        }
+    }
     public required IReadOnlyList<PlayerPanel> Panels { get; init; }
 
     public IReadOnlyList<int> OwnRiver => Rivers[MjConstants.SelfIndex];
@@ -282,6 +299,10 @@ internal static unsafe class EmjBoardReader
         foreach (uint id in MjConstants.OpponentMeldAreaNodeIds)
             CollectTiles(addon->GetNodeById(id), meldTiles, depth: 0);
 
+        var seatMelds = new IReadOnlyList<Meld>[MjConstants.SeatMeldSlotNodeIds.Length];
+        for (int s = 0; s < seatMelds.Length; s++)
+            seatMelds[s] = ReadMeldSlots(addon, MjConstants.SeatMeldSlotNodeIds[s]);
+
         var panels = new PlayerPanel[MjConstants.PlayerPanelNodeIds.Length];
         for (int i = 0; i < panels.Length; i++)
             panels[i] = ReadPanel(addon, MjConstants.PlayerPanelNodeIds[i]);
@@ -291,6 +312,7 @@ internal static unsafe class EmjBoardReader
             Rivers = rivers,
             DoraIndicators = dora,
             OpponentMeldTiles = meldTiles,
+            SeatMelds = seatMelds,
             Panels = panels,
         };
     }
@@ -405,6 +427,25 @@ internal static unsafe class EmjBoardReader
     /// </summary>
     public static IReadOnlyList<Meld> ReadMelds()
         => TryGetAddon(out AtkUnitBase* addon) ? ReadMelds(addon) : Array.Empty<Meld>();
+
+    /// <summary>Melds in one seat's four-slot strip: each visible slot whose tiles classify as a meld.</summary>
+    private static IReadOnlyList<Meld> ReadMeldSlots(AtkUnitBase* addon, uint[] slotIds)
+    {
+        var melds = new List<Meld>();
+        var tiles = new List<int>();
+        foreach (uint id in slotIds)
+        {
+            AtkResNode* container = addon->GetNodeById(id);
+            if (container == null || !container->IsVisible())
+                continue;
+            tiles.Clear();
+            CollectTiles(container, tiles, depth: 0);
+            if (Meld.TryClassify(tiles, out Meld meld))
+                melds.Add(meld);
+        }
+
+        return melds;
+    }
 
     private static IReadOnlyList<Meld> ReadMelds(AtkUnitBase* addon)
     {

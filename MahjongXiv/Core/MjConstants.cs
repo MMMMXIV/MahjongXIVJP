@@ -78,4 +78,17 @@ internal static class MjConstants
         114, 1140001, 1140002, 1140003,
         115, 1150001, 1150002, 1150003,
     ];
+
+    /// <summary>
+    /// Opponent meld strips by seat (panel order 1..3): each family is four slots, one meld per slot,
+    /// like our own 112 family. 114 ↔ panel 42 (seat 2) was seen live; 113 ↔ seat 1 and 115 ↔ seat 3
+    /// follow the same order and are checked by <c>/mjjp board</c>, which prints the melds per seat.
+    /// </summary>
+    public static readonly uint[][] SeatMeldSlotNodeIds =
+    [
+        [112, 1120001, 1120002, 1120003],
+        [113, 1130001, 1130002, 1130003],
+        [114, 1140001, 1140002, 1140003],
+        [115, 1150001, 1150002, 1150003],
+    ];
 }

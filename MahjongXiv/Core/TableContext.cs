@@ -10,18 +10,18 @@ namespace MahjongXiv.Core;
 internal static class TableContext
 {
     /// <summary>
-    /// Table context for the value ranking. Seat wind and dealer status come from our own panel;
-    /// the round wind is not readable yet, so East is assumed (correct for quick matches; a wrong
-    /// guess only misweights one yakuhai pair).
+    /// Table context for the value ranking. Seat wind and dealer status come from our own panel; the
+    /// round wind from the tracked hand number (East when it is not known, e.g. joined mid-match).
     /// </summary>
     public static EvalContext BuildEvalContext(in HandSnapshot snap, BoardSnapshot? board)
     {
         int seatWind = EmjStrings.WindToIndex(board?.Panels[MjConstants.SelfIndex].Wind);
+        MatchInfo match = MatchNow();
 
         return new EvalContext
         {
             SeatWind = seatWind,
-            RoundWind = 0,
+            RoundWind = match.HandNumber >= 0 ? Math.Min(3, match.HandNumber / 4) : 0,
             Dealer = seatWind == 0,
             Closed = snap.MeldCount == 0,
             DoraIndicators = board?.DoraIndicators,
@@ -31,11 +31,14 @@ internal static class TableContext
 
     /// <summary>The turn-policy input for a full 14-tile (post-draw) hand.</summary>
     public static TurnInput BuildTurnInput(in HandSnapshot snap, BoardSnapshot? board, bool riichiAvailable)
-        => new()
+    {
+        MatchInfo match = MatchNow();
+        return new TurnInput
         {
             Options = Plugin.Cfg.StrategicAi ? EvalOptions.Strategic : EvalOptions.Default,
-            Opponents = BuildOpponents(board),
-            Game = BuildGame(board),
+            Opponents = BuildOpponents(board, match),
+            Game = BuildGame(board, match),
+            WallRemaining = WallRemaining(board, drawPending: snap.TilesRead == 14 - 3 * snap.MeldCount),
             Counts14 = snap.Counts,
             Melds = snap.Melds,
             Seen = board?.BuildSeen(snap.Counts, snap.Melds),
@@ -44,13 +47,27 @@ internal static class TableContext
             OwnRiver = board?.OwnRiver ?? Array.Empty<int>(),
             RiichiAvailable = riichiAvailable,
         };
+    }
+
+    private static MatchInfo MatchNow()
+        => Plugin.Instance?.Match is { } m ? m.Snapshot() : new MatchInfo(-1, 8, 0, 0, false, [-1, -1, -1, -1]);
+
+    /// <summary>Live draws still to come, from the visible rivers and kans (see <see cref="TableMath.LiveDrawsLeft"/>); -1 without a board.</summary>
+    public static int WallRemaining(BoardSnapshot? board, bool drawPending)
+    {
+        if (board is null)
+            return -1;
+        int river = 0;
+        foreach (IReadOnlyList<int> r in board.Rivers)
+            river += r.Count;
+        return TableMath.LiveDrawsLeft(river, board.VisibleKans, drawPending);
+    }
 
     /// <summary>
-    /// Opponents in panel order (panel index = seat number for the engine). The live reader sees each
-    /// river and riichi badge, and which panel shows East (the dealer). It cannot yet attribute melds
-    /// to a seat or see when riichi was declared, so those stay empty / unknown.
+    /// Opponents in panel order (panel index = seat number for the engine): river, riichi badge and the
+    /// tracked declaration point, the melds read from that seat's strip, and whether the panel shows East.
     /// </summary>
-    private static IReadOnlyList<OpponentView>? BuildOpponents(BoardSnapshot? board)
+    private static IReadOnlyList<OpponentView>? BuildOpponents(BoardSnapshot? board, MatchInfo match)
     {
         if (board is null)
             return null;
@@ -60,11 +77,14 @@ internal static class TableContext
         {
             if (i == MjConstants.SelfIndex)
                 continue;
+            bool riichi = board.Panels[i].Riichi;
             list.Add(new OpponentView
             {
                 Seat = i,
                 River = board.Rivers[i],
-                Riichi = board.Panels[i].Riichi,
+                Riichi = riichi,
+                RiichiDiscardIndex = riichi && i < match.RiichiRiverIndex.Length ? match.RiichiRiverIndex[i] : -1,
+                Melds = i < board.SeatMelds.Count ? board.SeatMelds[i] : Array.Empty<Meld>(),
                 IsDealer = EmjStrings.WindToIndex(board.Panels[i].Wind) == 0 && board.Panels[i].Wind.Length > 0,
             });
         }
@@ -73,11 +93,11 @@ internal static class TableContext
     }
 
     /// <summary>
-    /// Scores from the seat panels. The round and hand number are not read yet, so the match is
-    /// assumed to be mid-way (three dealer turns left); placement awareness is therefore weaker live
-    /// than in the simulator. Null when the scores could not be read.
+    /// Scores from the seat panels, the hand number / sticks / honba from the match tracker, and the
+    /// match length from the duty. When the hand number is unknown (joined mid-match) the match is
+    /// treated as half-way through. Null when the scores could not be read.
     /// </summary>
-    private static GameState? BuildGame(BoardSnapshot? board)
+    private static GameState? BuildGame(BoardSnapshot? board, MatchInfo match)
     {
         if (board is null || board.Panels.Count != 4 || board.Panels.All(p => p.Score == 0))
             return null;
@@ -87,13 +107,19 @@ internal static class TableContext
             if (board.Panels[i].Wind.Length > 0 && EmjStrings.WindToIndex(board.Panels[i].Wind) == 0)
                 dealer = i;
 
+        int handNumber = match.HandNumber >= 0
+            ? Math.Min(match.HandNumber, match.TotalHands - 1)
+            : match.TotalHands / 2 - 1;
+
         return new GameState
         {
             Scores = board.Panels.Select(p => p.Score).ToArray(),
             SelfSeat = MjConstants.SelfIndex,
             DealerSeat = dealer,
-            HandNumber = 1,
-            TotalHands = 4,
+            HandNumber = handNumber,
+            TotalHands = match.TotalHands,
+            Honba = match.Honba,
+            RiichiSticks = match.RiichiSticks,
         };
     }
 }

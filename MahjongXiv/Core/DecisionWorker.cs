@@ -68,33 +68,78 @@ internal sealed class DecisionWorker
         return false;
     }
 
-    /// <summary>A compact fingerprint of everything the policy reads.</summary>
+    /// <summary>
+    /// A fingerprint of everything the policy reads: our tiles and melds, every river's contents in
+    /// order (who discarded what decides genbutsu), each opponent's riichi state, declaration point and
+    /// melds, dora and red fives, winds, the riichi option, the wall count, the match state and the
+    /// options. Two inputs with the same key always get the same decision.
+    /// </summary>
     public static string KeyFor(TurnInput input)
     {
-        var sb = new System.Text.StringBuilder(200);
+        var sb = new System.Text.StringBuilder(512);
         foreach (int c in input.Counts14)
             sb.Append((char)('0' + c));
-        sb.Append('|');
+        sb.Append("|m");
+        AppendMelds(sb, input.Melds);
+        sb.Append("|r");
+        AppendTiles(sb, input.OwnRiver);
+        sb.Append("|s");
         if (input.Seen is { } seen)
             foreach (int c in seen)
                 sb.Append((char)('0' + c));
-        sb.Append('|').Append(input.Melds.Count).Append('|').Append(input.Context.SeatWind).Append(input.RiichiAvailable ? 'R' : '-');
+        sb.Append("|w").Append(input.Context.SeatWind).Append(input.Context.RoundWind)
+          .Append(input.Context.Dealer ? 'D' : 'N').Append(input.Context.Closed ? 'C' : 'O')
+          .Append(input.RiichiAvailable ? 'R' : '-').Append(input.WallRemaining);
+        sb.Append("|d");
         if (input.Context.DoraIndicators is { } dora)
-            foreach (int t in dora)
-                sb.Append(',').Append(t);
+            AppendTiles(sb, dora);
+        sb.Append("|a");
         if (input.Context.AkaByType is { } aka)
             foreach (int a in aka)
                 sb.Append((char)('0' + a));
-        sb.Append('|');
+        sb.Append("|t");
         foreach (IReadOnlyList<int> river in input.ThreatRivers)
-            sb.Append(river.Count).Append(';');
+        {
+            AppendTiles(sb, river);
+            sb.Append(';');
+        }
+        sb.Append("|o");
         if (input.Opponents is { } opps)
+        {
             foreach (OpponentView o in opps)
-                sb.Append(o.Riichi ? 'r' : '.').Append(o.River.Count);
-        sb.Append('|').Append(input.OwnRiver.Count).Append(input.Options.AnyStrategic ? 'S' : 'L');
-        if (input.Game is { } game)
-            foreach (int score in game.Scores)
-                sb.Append(',').Append(score);
+            {
+                sb.Append(o.Seat).Append(o.Riichi ? 'r' : '.').Append(o.RiichiDiscardIndex).Append(o.IsDealer ? 'D' : 'N').Append(':');
+                AppendTiles(sb, o.River);
+                sb.Append('/');
+                AppendMelds(sb, o.Melds);
+                sb.Append(';');
+            }
+        }
+        sb.Append("|g");
+        if (input.Game is { } g)
+        {
+            foreach (int score in g.Scores)
+                sb.Append(score).Append(',');
+            sb.Append(g.SelfSeat).Append(g.DealerSeat).Append('h').Append(g.HandNumber).Append('/').Append(g.TotalHands)
+              .Append('b').Append(g.Honba).Append('k').Append(g.RiichiSticks);
+        }
+        sb.Append("|x").Append(input.Options);
         return sb.ToString();
+    }
+
+    private static void AppendTiles(System.Text.StringBuilder sb, IReadOnlyList<int> tiles)
+    {
+        foreach (int t in tiles)
+            sb.Append((char)('A' + t));
+    }
+
+    private static void AppendMelds(System.Text.StringBuilder sb, IReadOnlyList<Meld> melds)
+    {
+        foreach (Meld m in melds)
+        {
+            sb.Append((char)('0' + (int)m.Kind)).Append(m.IsOpen ? 'o' : 'c');
+            AppendTiles(sb, m.Tiles);
+            sb.Append(',');
+        }
     }
 }

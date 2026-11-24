@@ -35,6 +35,12 @@ internal static class EmjTableGuard
 
     public static TableKind Current => Classify(CurrentCfc);
 
+    /// <summary>
+    /// Dealer rotations in the match: 4 for the quick (east-only) duties 766-769, 8 for the full
+    /// (east+south) duties 643-645 and 650. Unknown duties are treated as full matches.
+    /// </summary>
+    public static int TotalHandsFor(uint cfc) => cfc is 766 or 767 or 768 or 769 ? 4 : 8;
+
     public static TableKind Classify(uint cfc)
         => CasualCfc.Contains(cfc) ? TableKind.Casual
             : RankedCfc.Contains(cfc) ? TableKind.Ranked
