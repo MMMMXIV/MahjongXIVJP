@@ -25,6 +25,12 @@ public sealed record TurnInput
     /// <summary>Live-wall tiles still to be drawn by anyone, or -1 when unknown.</summary>
     public int WallRemaining { get; init; } = -1;
 
+    /// <summary>
+    /// Tile types the table will not let us discard right now (kuikae after a call, tiles the game shows
+    /// disabled). They are removed from the candidates unless nothing else would remain.
+    /// </summary>
+    public IReadOnlyList<int> ForbiddenDiscards { get; init; } = Array.Empty<int>();
+
     public EvalOptions Options { get; init; } = EvalOptions.Default;
 }
 
@@ -62,6 +68,8 @@ public static class TurnPolicy
     public static TurnDecision Decide(TurnInput input, out IReadOnlyList<ScoredDiscard> rankedDiscards)
     {
         List<ScoredDiscard> ranked = DiscardEvaluator.Rank(input.Counts14, input.Melds, input.Seen, input.Context, input.Options);
+        if (input.ForbiddenDiscards.Count > 0 && ranked.Any(r => !input.ForbiddenDiscards.Contains(r.Option.Tile)))
+            ranked = ranked.Where(r => !input.ForbiddenDiscards.Contains(r.Option.Tile)).ToList();
         rankedDiscards = ranked;
         if (input.Options.AnyStrategic && ranked.Count > 0)
             return StrategicPolicy.Decide(input, ranked);

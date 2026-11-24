@@ -160,6 +160,24 @@ internal static unsafe class EmjClicker
         return addon->GetNodeById(id);
     }
 
+    /// <summary>
+    /// Which hand slots (0-13) currently have a visible, enabled tile button; null when no slot is
+    /// enabled at all (between states / animating), which says nothing about individual tiles.
+    /// </summary>
+    public static bool[]? ReadEnabledSlots()
+    {
+        if (!EmjBoardReader.TryGetAddon(out AtkUnitBase* addon))
+            return null;
+        var enabled = new bool[14];
+        bool any = false;
+        for (int slot = 0; slot <= 13; slot++)
+        {
+            enabled[slot] = SlotButton(addon, slot, out _) != null;
+            any |= enabled[slot];
+        }
+        return any ? enabled : null;
+    }
+
     /// <summary>Hand tile component node -> its button node (Uld NodeList[HandButtonNodeListIndex]).</summary>
     private static AtkResNode* SlotButton(AtkUnitBase* addon, int slot, out string reason)
     {

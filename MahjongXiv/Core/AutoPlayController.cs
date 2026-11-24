@@ -206,6 +206,7 @@ internal sealed class AutoPlayController : IDisposable
         {
             EmjActuator.Reset();
             stableHand = null;
+            frozenForbidden = null;
             postCallTurn = state == 28;
             if (state == 2) { riverProgress.Reset(); lastDiscardTile = -1; }
             waitReason = "waiting for ready hand/options";
@@ -220,10 +221,28 @@ internal sealed class AutoPlayController : IDisposable
         }
         prevState = state;
 
-        if (!stuckWarned && state is 2 or 6 or 15 or 28 or 30 && now - stateSince > StuckWarnMs)
+        // State 15 is also the plain "waiting for the other players" state (it alternates with 7/9 while
+        // opponents act). Only a visible call popup is something for us to resolve, so the stall guard
+        // for 15 counts from when a popup is on screen, not from when the state began: a long-thinking
+        // opponent must not stop auto-play.
+        if (state == 15)
+        {
+            bool offerVisible = EmjBoardReader.ReadActionOptions().Count > 0;
+            if (!offerVisible)
+                offerSince = 0;
+            else if (offerSince == 0)
+                offerSince = now;
+        }
+        else
+        {
+            offerSince = 0;
+        }
+
+        long unresolvedSince = state == 15 ? (offerSince == 0 ? now : offerSince) : stateSince;
+        if (!stuckWarned && state is 2 or 6 or 15 or 28 or 30 && now - unresolvedSince > StuckWarnMs)
         {
             stuckWarned = true;
-            StopUnsafe($"state={state} unresolved for {now - stateSince}ms; {waitReason}; acted={acted}, popupAttempts={popupAttempts}");
+            StopUnsafe($"state={state} unresolved for {now - unresolvedSince}ms; {waitReason}; acted={acted}, popupAttempts={popupAttempts}");
             return;
         }
 
@@ -306,6 +325,49 @@ internal sealed class AutoPlayController : IDisposable
         if (grew) lastDiscardTile = tile;
         return grew;
     }
+
+    /// <summary>
+    /// Tiles the table will refuse: after a pon the called tile (kuikae; the game disables it, and the
+    /// handshake pins its target at the first highlight, so this must be known before choosing), plus
+    /// any tile type whose every copy in hand shows a disabled button while other tiles are enabled.
+    /// </summary>
+    private IReadOnlyList<int> ForbiddenDiscards(in HandSnapshot snap, bool afterCall)
+    {
+        var forbidden = new List<int>();
+        if (afterCall && snap.Melds.Count > 0 && snap.Melds[^1].Kind == MeldKind.Pon)
+            forbidden.Add(snap.Melds[^1].Tiles[0]);
+
+        bool[]? enabled = EmjClicker.ReadEnabledSlots();
+        if (enabled is not null && snap.SlotTiles is { } slots)
+        {
+            for (int t = 0; t < Tiles.TypeCount; t++)
+            {
+                bool held = false, anyEnabled = false;
+                for (int s = 0; s < slots.Length && s < enabled.Length; s++)
+                {
+                    if (slots[s] != t)
+                        continue;
+                    held = true;
+                    anyEnabled |= enabled[s];
+                }
+                if (held && !anyEnabled && !forbidden.Contains(t))
+                    forbidden.Add(t);
+            }
+        }
+
+        if (forbidden.Count > 0 && forbidden.Count != lastForbiddenCount)
+            MjLog.Info($"turn: not selectable now: {string.Join(" ", forbidden.Select(Tiles.Name))}{(afterCall ? " (after call)" : "")}.");
+        lastForbiddenCount = forbidden.Count;
+        return forbidden;
+    }
+
+    private int lastForbiddenCount;
+
+    /// <summary>
+    /// The forbidden set is read once per turn and kept: a changing set would change the decision key
+    /// while the discard handshake has already pinned its target. Cleared whenever a turn re-arms.
+    /// </summary>
+    private IReadOnlyList<int>? frozenForbidden;
 
     private void DoTurn(bool afterCall)
     {
@@ -405,7 +467,8 @@ internal sealed class AutoPlayController : IDisposable
 
         int riichiOption = afterCall ? -1 : FindOption(EmjBoardReader.ReadActionOptions(), EmjAction.Riichi);
 
-        TurnInput input = TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired);
+        TurnInput input = TableContext.BuildTurnInput(snap, board, riichiAvailable: riichiOption >= 0 && !riichiFired)
+            with { ForbiddenDiscards = frozenForbidden ??= ForbiddenDiscards(snap, afterCall) };
         if (!worker.TryGet(DecisionWorker.KeyFor(input), input, out TurnDecision decision, out _))
         {
             waitReason = "decision worker pending";
@@ -477,11 +540,22 @@ internal sealed class AutoPlayController : IDisposable
         return true;
     }
 
+    /// <summary>When the current call popup first showed options in this state (0 = none on screen).</summary>
+    private long offerSince;
+
     private void DoCall()
     {
         if (popupAttempts >= MaxPopupAttempts) return;
 
         var options = EmjBoardReader.ReadActionOptions();
+        if (options.Count == 0)
+        {
+            // No popup: state 15 is just waiting for the other players. Nothing to do or report.
+            waitReason = "no call offered (other players' turn)";
+            stableHand = null;
+            return;
+        }
+
         string optionKey = string.Join("|", options.Select(o => $"{o.Option}:{o.Label}"));
         long now = Environment.TickCount64;
         if (stableHand != optionKey)

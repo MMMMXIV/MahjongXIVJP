@@ -148,3 +148,35 @@ public class DeadTileTests
             Assert.True(i9p < i5z);
     }
 }
+
+public class ForbiddenDiscardTests
+{
+    [Fact]
+    public void KuikaeTileIsNeverChosen()
+    {
+        // After ponning 5z the spare 5z would be the natural cut, but the table forbids it (kuikae).
+        int[] hand = Tiles.ParseCounts("234m67m345p34s5z9s");
+        var pon = new Meld(MeldKind.Pon, [Tiles.Index("5z"), Tiles.Index("5z"), Tiles.Index("5z")]);
+        var input = new TurnInput
+        {
+            Counts14 = hand,
+            Melds = [pon],
+            Context = new EvalContext { SeatWind = 1, Closed = false },
+            ForbiddenDiscards = [Tiles.Index("5z")],
+        };
+        TurnDecision free = TurnPolicy.Decide(input with { ForbiddenDiscards = [] });
+        TurnDecision d = TurnPolicy.Decide(input);
+        Assert.NotEqual(Tiles.Index("5z"), d.Discard);
+        Assert.NotEqual(Tiles.Index("5z"), TurnPolicy.Decide(input with { Options = EvalOptions.Strategic }).Discard);
+        Assert.True(d.Discard >= 0, free.Reason);
+    }
+
+    [Fact]
+    public void EverythingForbiddenFallsBackToTheRanking()
+    {
+        int[] hand = Tiles.ParseCounts("123m456p789s11z22z3z");
+        var all = Enumerable.Range(0, 34).Where(t => hand[t] > 0).ToList();
+        TurnDecision d = TurnPolicy.Decide(new TurnInput { Counts14 = hand, Context = new EvalContext(), ForbiddenDiscards = all });
+        Assert.True(d.Discard >= 0);
+    }
+}

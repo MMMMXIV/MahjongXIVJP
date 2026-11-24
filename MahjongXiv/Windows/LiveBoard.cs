@@ -182,7 +182,7 @@ internal sealed class LiveBoard
         return state switch
         {
             6 or 30 => BoardPhase.OurTurn,
-            15 => BoardPhase.CallOffered,
+            15 => EmjBoardReader.ReadActionOptions().Count > 0 ? BoardPhase.CallOffered : BoardPhase.Watching,
             2 or 29 or 32 => BoardPhase.BetweenHands,
             _ => BoardPhase.Watching,
         };

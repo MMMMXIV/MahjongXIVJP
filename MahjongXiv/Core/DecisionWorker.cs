@@ -123,6 +123,8 @@ internal sealed class DecisionWorker
             sb.Append(g.SelfSeat).Append(g.DealerSeat).Append('h').Append(g.HandNumber).Append('/').Append(g.TotalHands)
               .Append('b').Append(g.Honba).Append('k').Append(g.RiichiSticks);
         }
+        sb.Append("|f");
+        AppendTiles(sb, input.ForbiddenDiscards);
         sb.Append("|x").Append(input.Options);
         return sb.ToString();
     }
