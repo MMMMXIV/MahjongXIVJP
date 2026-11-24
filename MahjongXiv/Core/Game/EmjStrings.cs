@@ -26,6 +26,9 @@ internal enum EmjAction
 /// </summary>
 internal static class EmjStrings
 {
+    /// <summary>Exact texts of a table button that declares a tsumo win (compared after trimming).</summary>
+    public static readonly string[] TsumoButtonTerms = ["ツモ", "Tsumo", "自摸"];
+
     private static readonly string[] Canonical = ["East", "South", "West", "North"];
 
     // One localized seat-wind word -> wind index 0..3 (E/S/W/N).

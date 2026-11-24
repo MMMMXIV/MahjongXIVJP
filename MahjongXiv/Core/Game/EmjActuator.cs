@@ -130,6 +130,35 @@ internal static unsafe class EmjActuator
         return true;
     }
 
+    /// <summary>
+    /// Press a visible, enabled button on the table whose own text is exactly one of
+    /// <paramref name="exactLabels"/>, by replaying its click event (as a mouse click would). Used when a
+    /// panel carries no option labels in its AtkValues. Only in our draw states (6/30).
+    /// </summary>
+    public static bool ClickLabelledButton(IReadOnlyList<string> exactLabels, out string pressed)
+    {
+        pressed = string.Empty;
+        if (Failure != null || !EmjBoardReader.TryGetAddon(out AtkUnitBase* addon) || !addon->IsReady)
+            return false;
+        int state = addon->AtkValues != null && addon->AtkValuesCount > 0 ? addon->AtkValues[0].Int : -1;
+        if (state is not (6 or 30))
+            return false;
+
+        foreach (UiButton button in UiButtons.Find(addon))
+        {
+            string text = button.Text.Trim();
+            if (!exactLabels.Any(l => string.Equals(text, l, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            MjLog.Info($"click: begin labelled button #{button.NodeId} '{text}' state={state} addon={(nint)addon:X}");
+            UiButtons.Click(addon, button);
+            MjLog.Info($"click: returned labelled button #{button.NodeId} '{text}'");
+            pressed = text;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Legacy diagnostic command: raw result/acknowledgement injection is disabled.</summary>
     public static bool Advance()
     {

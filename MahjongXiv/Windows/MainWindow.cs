@@ -262,6 +262,9 @@ public sealed class MainWindow : Window, IDisposable
         string elapsed = t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes}:{t.Seconds:00}";
         ImGui.TextColored(Styling.TextSecondary, Loc.F("auto.stats", stats.Wins, stats.Discards, stats.Riichis, elapsed));
 
+        if (stats.Yields > 0)
+            ImGui.TextColored(Styling.AccentAmber, Loc.F("auto.yields", stats.Yields));
+
         if (stats.Recent.Count > 0)
             ImGui.TextColored(Styling.TextMuted, Loc.F("auto.last", stats.Recent[0].Label));
     }

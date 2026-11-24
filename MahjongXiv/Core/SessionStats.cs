@@ -9,6 +9,7 @@ internal enum AutoActionKind
     Advance,
     Riichi,
     Meld,
+    Yield,
 }
 
 internal readonly record struct AutoAction(long Tick, AutoActionKind Kind, string Label);
@@ -32,6 +33,9 @@ internal sealed class SessionStats
     public int Riichis { get; private set; }
     public int Melds { get; private set; }
 
+    /// <summary>Turns or popups left to the game's timer because the driver could not tell what to do.</summary>
+    public int Yields { get; private set; }
+
     public int Wins => Tsumo + Ron;
     public bool HasActivity => Discards + Tsumo + Ron + Passes + Advances + Riichis + Melds > 0;
     public TimeSpan Elapsed => TimeSpan.FromMilliseconds(Environment.TickCount64 - startedAt);
@@ -42,7 +46,7 @@ internal sealed class SessionStats
     public void Reset()
     {
         startedAt = Environment.TickCount64;
-        Discards = Tsumo = Ron = Passes = Advances = Riichis = Melds = 0;
+        Discards = Tsumo = Ron = Passes = Advances = Riichis = Melds = Yields = 0;
         recent.Clear();
     }
 
@@ -57,6 +61,7 @@ internal sealed class SessionStats
             case AutoActionKind.Advance: Advances++; break;
             case AutoActionKind.Riichi: Riichis++; break;
             case AutoActionKind.Meld: Melds++; break;
+            case AutoActionKind.Yield: Yields++; break;
         }
 
         recent.Insert(0, new AutoAction(Environment.TickCount64, kind, label));

@@ -79,6 +79,7 @@ internal sealed class AutoPlayController : IDisposable
         {
             BlockedReason = null;
             Stats.Reset();
+            yieldGuard.Reset();
             MjLog.Info(Mode == PlayMode.Auto
                 ? "Auto-play ON: guarded discards/calls; result screens and new-hand acknowledgement are left to the game."
                 : "Suggestions ON: showing the best move each turn. No inputs are sent for you.");
@@ -204,9 +205,15 @@ internal sealed class AutoPlayController : IDisposable
 
         if (DiscardHandshake.ShouldRearm(prevState, state, newDiscard))
         {
+            // The previous turn/popup ended with an action of ours (not a yield): the yield run is broken.
+            if (acted && !yieldedThisState)
+                yieldGuard.RecordSuccess();
+            yieldedThisState = false;
             EmjActuator.Reset();
             stableHand = null;
             frozenForbidden = null;
+            tsumoButtonPressed = false;
+            noWinLogged = false;
             postCallTurn = state == 28;
             if (state == 2) { riverProgress.Reset(); lastDiscardTile = -1; }
             waitReason = "waiting for ready hand/options";
@@ -259,7 +266,7 @@ internal sealed class AutoPlayController : IDisposable
         if (!stuckWarned && state is 2 or 6 or 15 or 28 or 30 && now - unresolvedSince > StuckWarnMs)
         {
             stuckWarned = true;
-            StopUnsafe($"state={state} unresolved for {now - unresolvedSince}ms; {waitReason}; acted={acted}, popupAttempts={popupAttempts}");
+            YieldToGame(state, $"state={state} unresolved for {now - unresolvedSince}ms; {waitReason}; acted={acted}, popupAttempts={popupAttempts}");
             return;
         }
 
@@ -309,6 +316,50 @@ internal sealed class AutoPlayController : IDisposable
     /// <summary>The label's characters as code points, to tell an unknown word from unreadable text.</summary>
     private static string Escape(string label)
         => string.Join(" ", label.Take(12).Select(c => ((int)c).ToString("X4")));
+
+    private readonly YieldGuard yieldGuard = new();
+    private bool yieldedThisState;
+
+    /// <summary>Times the driver left a turn or popup to the game's timer in this session.</summary>
+    public int Yields => yieldGuard.Total;
+
+    /// <summary>
+    /// Not knowing what to do is not unsafe: the game's timer plays this turn (tsumogiri) or passes this
+    /// call. So the driver sends nothing more for this state, records a one-off snapshot for diagnosis,
+    /// and resumes at the next state. Only <see cref="YieldGuard.Limit"/> yields in a row (no action of
+    /// ours going through in between) mean the reading is broken, and then auto-play stops.
+    /// </summary>
+    private void YieldToGame(int state, string detail)
+    {
+        acted = true;
+        yieldedThisState = true;
+        waitReason = "left to the game timer";
+        Stats.Record(AutoActionKind.Yield, Loc.T("act.yield"));
+        MjLog.Warn($"auto: YIELD (left to the game timer, auto-play continues): {detail}");
+        LogSnapshot(state);
+        if (yieldGuard.RecordYield())
+            StopUnsafe($"{YieldGuard.Limit} turns in a row could not be played: {detail}");
+    }
+
+    /// <summary>One block with everything needed to understand a new case from a single log.</summary>
+    private static void LogSnapshot(int state)
+    {
+        try
+        {
+            var options = EmjBoardReader.ReadActionOptions();
+            MjLog.Info($"snapshot: state={EmjBoardReader.ReadStateCode()} (yielded at {state}), addon={EmjBoardReader.CurrentAddonName}, options=[{string.Join(" | ", options.Select(o => $"#{o.Option} '{o.Label}'"))}]");
+            if (EmjBoardReader.TryReadHand(out HandSnapshot hand))
+                MjLog.Info($"snapshot: hand {hand.Notation} (read {hand.TilesRead}, melds {hand.MeldCount}), shanten {ShantenCalculator.Calculate(hand.Counts, hand.MeldCount)}");
+            bool[]? enabled = EmjClicker.ReadEnabledSlots();
+            MjLog.Info($"snapshot: enabled tile slots: {(enabled is null ? "none" : string.Join("", enabled.Select(e => e ? '1' : '0')))}");
+            EmjClicker.DumpButtons();
+            EmjAddonDumper.DumpValues();
+        }
+        catch (Exception ex)
+        {
+            MjLog.Warn($"snapshot failed: {ex.Message}");
+        }
+    }
 
     private void StopUnsafe(string detail)
     {
@@ -380,6 +431,12 @@ internal sealed class AutoPlayController : IDisposable
 
     private int lastForbiddenCount;
 
+    /// <summary>How long a complete shape waits for a Tsumo option before the turn is played normally.</summary>
+    private const int NoWinGraceMs = 1500;
+
+    private bool tsumoButtonPressed;
+    private bool noWinLogged;
+
     /// <summary>
     /// The forbidden set is read once per turn and kept: a changing set would change the decision key
     /// while the discard handshake has already pinned its target. Cleared whenever a turn re-arms.
@@ -435,7 +492,43 @@ internal sealed class AutoPlayController : IDisposable
             var actions = EmjBoardReader.ReadActionOptions();
             int tsumo = FindOption(actions, EmjAction.Tsumo);
             int option = tsumo; // Unknown labels never authorize a guessed option.
-            if (option < 0) { waitReason = "winning hand but no Tsumo option readable"; return; }
+            if (option < 0)
+            {
+                // The drawn-win panel can carry no labels in AtkValues. A visible, enabled button whose
+                // own text reads "ツモ"/"Tsumo" is still label-verified: press it like a mouse click, once.
+                if (!tsumoButtonPressed && EmjActuator.ClickLabelledButton(EmjStrings.TsumoButtonTerms, out string pressed))
+                {
+                    tsumoButtonPressed = true;
+                    popupAttempts++;
+                    MjLog.Info($"turn: tsumo via the '{pressed}' button (no labelled option).");
+                    Stats.Record(AutoActionKind.Tsumo, Loc.T("act.tsumo"));
+                    actAtTick = Environment.TickCount64 + PopupRetryDelayMs;
+                    return;
+                }
+
+                if (tsumoButtonPressed)
+                {
+                    waitReason = "tsumo button pressed; waiting for the result";
+                    return;
+                }
+
+                // No win is offered (a complete shape without a yaku cannot win, e.g. an open hand
+                // whose yaku is gone). Give the panel a moment, then play the turn as usual instead
+                // of stalling.
+                if (Environment.TickCount64 - stateSince < NoWinGraceMs)
+                {
+                    waitReason = "winning shape: waiting for a Tsumo option";
+                    return;
+                }
+
+                if (!noWinLogged)
+                {
+                    noWinLogged = true;
+                    MjLog.Warn($"turn: complete shape {snap.Notation} but no Tsumo offered (options [{string.Join(" | ", actions.Select(a => $"#{a.Option} '{a.Label}'"))}]); playing the turn normally.");
+                    EmjClicker.DumpButtons();
+                }
+                goto NormalTurn;
+            }
 
             if (EmjActuator.Call(option))
             {
@@ -449,6 +542,7 @@ internal sealed class AutoPlayController : IDisposable
             return;
         }
 
+        NormalTurn:
         if (TryResolveNineTerminals(snap))
             return;
 
@@ -494,7 +588,7 @@ internal sealed class AutoPlayController : IDisposable
 
         if (decision.Discard < 0)
         {
-            StopUnsafe($"decision unavailable: {decision.Reason}");
+            YieldToGame(30, $"decision unavailable: {decision.Reason}");
             return;
         }
         waitReason = "discard handshake/acknowledgement pending";

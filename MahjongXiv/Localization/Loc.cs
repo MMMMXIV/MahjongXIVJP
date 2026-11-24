@@ -75,6 +75,8 @@ internal static class Loc
         ["act.win"] = "Called the win",
         ["act.pass"] = "Passed a call",
         ["act.pon"] = "Pon {0}",
+        ["act.yield"] = "Left a turn to the game timer",
+        ["auto.yields"] = "Left to the game timer: {0} (details in /xllog)",
 
         // Settings
         ["settings.header"] = "Settings",
@@ -188,6 +190,8 @@ internal static class Loc
         ["act.win"] = "ロン和了を宣言",
         ["act.pass"] = "鳴きを見送り",
         ["act.pon"] = "{0}をポン",
+        ["act.yield"] = "判断できず、ゲームの時間切れに任せました",
+        ["auto.yields"] = "ゲームの時間切れに任せた回数: {0}（詳細は /xllog）",
 
         ["settings.header"] = "設定",
         ["settings.language"] = "表示言語",

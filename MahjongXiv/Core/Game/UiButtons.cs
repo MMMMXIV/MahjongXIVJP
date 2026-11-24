@@ -84,8 +84,12 @@ internal static unsafe class UiButtons
     /// <summary>Simulate a click on <paramref name="button"/>.</summary>
     public static void Click(AtkUnitBase* addon, in UiButton button)
     {
+        // ReceiveEvent can rebuild the event list: capture the scalars first and never read the event afterwards.
+        AtkEvent* evt = button.Event;
+        var type = evt->State.EventType;
+        int param = (int)evt->Param;
         var data = new AtkEventData();
-        addon->ReceiveEvent(button.Event->State.EventType, (int)button.Event->Param, button.Event, &data);
+        addon->ReceiveEvent(type, param, evt, &data);
     }
 
     public static string Describe(IEnumerable<UiButton> buttons)
