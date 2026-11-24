@@ -268,6 +268,12 @@ internal sealed class AutoPlayController : IDisposable
     /// Refuse to act at a non-casual table: disengage, and tell the player in chat and in the cockpit
     /// (the plugin log alone goes unseen). Suggest mode is unaffected — it never hooks this loop.
     /// </summary>
+    private string? unreadableOfferKey;
+
+    /// <summary>The label's characters as code points, to tell an unknown word from unreadable text.</summary>
+    private static string Escape(string label)
+        => string.Join(" ", label.Take(12).Select(c => ((int)c).ToString("X4")));
+
     private void StopUnsafe(string detail)
     {
         BlockedReason = "自動操作を安全のため停止しました。手動で続行してください。";
@@ -488,7 +494,18 @@ internal sealed class AutoPlayController : IDisposable
         if (now - stableHandSince < 240) return;
         CallDecision decision = DecideCall(options);
         if (decision.Option < 0)
-            return; // popup not readable yet, or nothing safe to click — wait for the next tick
+        {
+            // Nothing recognizable to click (no Ron/Tsumo/Pass label): wait, never guess. Record what
+            // the popup shows once per offer, so a label missing from EmjStrings can be added.
+            waitReason = decision.Reason;
+            if (unreadableOfferKey != optionKey)
+            {
+                unreadableOfferKey = optionKey;
+                MjLog.Warn($"call: no recognizable button ({decision.Reason}); labels [{string.Join(" | ", options.Select(o => $"#{o.Option} '{o.Label}' ({Escape(o.Label)})"))}].");
+                EmjAddonDumper.DumpValues();
+            }
+            return;
+        }
 
         if (decision.Reason == "pass")
             decision = MaybeUpgradeToPon(options, decision);
