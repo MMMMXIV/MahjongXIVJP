@@ -214,6 +214,10 @@ internal sealed class AutoPlayController : IDisposable
             frozenForbidden = null;
             tsumoButtonPressed = false;
             noWinLogged = false;
+            meldSupplyLogged = false;
+            incompleteLogged = false;
+            if (state is 2 or 6)
+                ponnedTile = -1; // a new hand, or a normal draw: no pon is pending any more
             postCallTurn = state == 28;
             if (state == 2) { riverProgress.Reset(); lastDiscardTile = -1; }
             waitReason = "waiting for ready hand/options";
@@ -443,6 +447,14 @@ internal sealed class AutoPlayController : IDisposable
 
     private int lastForbiddenCount;
 
+    /// <summary>How long the post-pon turn waits for our new meld to read before supplying it.</summary>
+    private const int MeldReadGraceMs = 1500;
+
+    /// <summary>The tile of the pon we sent and that has not been discarded after yet (-1 none).</summary>
+    private int ponnedTile = -1;
+    private bool meldSupplyLogged;
+    private bool incompleteLogged;
+
     /// <summary>How long a complete shape waits for a Tsumo option before the turn is played normally.</summary>
     private const int NoWinGraceMs = 1500;
 
@@ -463,10 +475,36 @@ internal sealed class AutoPlayController : IDisposable
             waitReason = "hand unreadable";
             return;
         }
+        // Right after our pon the hand already shows three tiles fewer while the new meld can still be
+        // animating in (or not decode). Give the meld read a moment, then supply the pon we know we made.
+        if (afterCall && ponnedTile >= 0 && snap.TilesRead == 14 - 3 * (snap.MeldCount + 1)
+            && !snap.Melds.Any(m => m.Kind == MeldKind.Pon && m.Tiles[0] == ponnedTile))
+        {
+            if (Environment.TickCount64 - stateSince < MeldReadGraceMs)
+            {
+                stableHand = null;
+                waitReason = $"waiting for our pon of {Tiles.Name(ponnedTile)} to show";
+                return;
+            }
+
+            var melds = new List<Meld>(snap.Melds) { new Meld(MeldKind.Pon, [ponnedTile, ponnedTile, ponnedTile]) };
+            snap = new HandSnapshot(snap.Counts, snap.AkaByType, snap.TilesRead, snap.Notation, snap.SlotTiles, snap.SlotIcons, melds, snap.VisibleNodes);
+            if (!meldSupplyLogged)
+            {
+                meldSupplyLogged = true;
+                MjLog.Warn($"turn: our pon of {Tiles.Name(ponnedTile)} did not read from the meld strip; using it from the call (read {snap.TilesRead} tiles).");
+            }
+        }
+
         if (snap.TilesRead != 14 - 3 * snap.MeldCount)
         {
             stableHand = null;
             waitReason = $"hand incomplete: read={snap.TilesRead}, melds={snap.MeldCount}, expected={14 - 3 * snap.MeldCount}";
+            if (!incompleteLogged && Environment.TickCount64 - stateSince > 3000)
+            {
+                incompleteLogged = true;
+                MjLog.Warn($"turn: {waitReason}; melds read [{string.Join(" ", snap.Melds.Select(m => m.ToString()))}], after call={afterCall}, ponned={(ponnedTile >= 0 ? Tiles.Name(ponnedTile) : "-")}.");
+            }
             return;
         }
         string handKey = string.Join(",", snap.SlotIcons) + ":" + snap.MeldCount;
@@ -717,6 +755,8 @@ internal sealed class AutoPlayController : IDisposable
         if (EmjActuator.Call(decision.Option))
         {
             answeredOfferKey = optionKey;
+            if (decision.Reason.StartsWith("pon", StringComparison.Ordinal))
+                ponnedTile = lastDiscardTile;
             popupAttempts++;
             acted = true;
             waitReason = "call sent once; waiting for a new state or opponent discard";
