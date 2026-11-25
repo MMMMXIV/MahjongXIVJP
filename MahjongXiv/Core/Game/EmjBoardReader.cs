@@ -200,7 +200,8 @@ internal static unsafe class EmjBoardReader
             options.Add(new ActionOption(label, i - MjConstants.ActionButtonBaseIndex));
         }
 
-        return options;
+        // Without a single known action label this is other table text (e.g. "0本場"), not a popup.
+        return EmjStrings.HasKnownAction(options.Select(o => o.Label)) ? options : Array.Empty<ActionOption>();
     }
 
     public static bool TryReadHand(out HandSnapshot snapshot)

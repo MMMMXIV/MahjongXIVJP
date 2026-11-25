@@ -26,6 +26,14 @@ internal enum EmjAction
 /// </summary>
 internal static class EmjStrings
 {
+    /// <summary>
+    /// Whether a run of popup labels contains at least one known action (Ron, Tsumo, Riichi, Pon, Chi,
+    /// Kan, nine terminals, Pass). The AtkValues slots the popup uses can also hold other table text
+    /// when no popup is open (seen live: "0本場"); such a run is not a popup.
+    /// </summary>
+    public static bool HasKnownAction(IEnumerable<string> labels)
+        => labels.Any(l => Classify(l) != EmjAction.Unknown);
+
     /// <summary>Exact texts of a table button that declares a tsumo win (compared after trimming).</summary>
     public static readonly string[] TsumoButtonTerms = ["ツモ", "Tsumo", "自摸"];
 

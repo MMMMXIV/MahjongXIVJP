@@ -118,3 +118,15 @@ public class LocalizationTests
         Assert.NotEmpty(ranked);
     }
 }
+
+public class PopupLabelTests
+{
+    [Theory]
+    [InlineData(new[] { "0本場" }, false)]
+    [InlineData(new[] { "3本場", "東2局" }, false)]
+    [InlineData(new[] { "ポン", "パス" }, true)]
+    [InlineData(new[] { "ロン", "見送る" }, true)]
+    [InlineData(new string[0], false)]
+    public void OnlyKnownActionsMakeAPopup(string[] labels, bool popup)
+        => Assert.Equal(popup, MahjongXiv.Core.Game.EmjStrings.HasKnownAction(labels));
+}

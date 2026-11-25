@@ -228,6 +228,18 @@ internal sealed class AutoPlayController : IDisposable
         }
         prevState = state;
 
+        // Remember the last complete hand read outside our own turn. While a call popup is up the hand
+        // can read incomplete (seen live), and between our discard and our next draw the hand cannot
+        // change, so this copy is what the pon decision uses then.
+        if (state is 2 or 6 or 28 or 30)
+        {
+            handBeforePopup = null;
+        }
+        else if (EmjBoardReader.TryReadHand(out HandSnapshot outside) && outside.TilesRead == 13 - 3 * outside.MeldCount)
+        {
+            handBeforePopup = outside;
+        }
+
         // State 15 is also the plain "waiting for the other players" state (it alternates with 7/9 while
         // opponents act). Only a visible call popup is something for us to resolve, so the stall guard
         // for 15 counts from when a popup is on screen, not from when the state began: a long-thinking
@@ -651,6 +663,9 @@ internal sealed class AutoPlayController : IDisposable
         return true;
     }
 
+    /// <summary>Last complete 13-tile hand read outside our turn (cleared when our turn or a new hand starts).</summary>
+    private HandSnapshot? handBeforePopup;
+
     /// <summary>When the current call popup first showed options in this state (0 = none on screen).</summary>
     private long offerSince;
 
@@ -739,8 +754,13 @@ internal sealed class AutoPlayController : IDisposable
 
         if (!EmjBoardReader.TryReadHand(out HandSnapshot snap) || snap.TilesRead != 13 - 3 * snap.MeldCount)
         {
-            MjLog.Info($"pon: offered on {Tiles.Name(lastDiscardTile)}, but the hand did not read fully; passing.");
-            return pass;
+            if (handBeforePopup is not { } before)
+            {
+                MjLog.Info($"pon: offered on {Tiles.Name(lastDiscardTile)}, but the hand did not read fully; passing.");
+                return pass;
+            }
+            snap = before;
+            MjLog.Info($"pon: hand read incomplete under the popup; using the hand read before it ({snap.Notation}).");
         }
 
         if (snap.Counts[lastDiscardTile] < 2)
