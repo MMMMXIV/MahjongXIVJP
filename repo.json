@@ -3,7 +3,7 @@
     "Author": "MMMMXIV (based on MahjongXIV by kuchris)",
     "Name": "MahjongXIV JP",
     "InternalName": "MahjongXIVJP",
-    "AssemblyVersion": "0.5.4.1",
+    "AssemblyVersion": "0.5.4.2",
     "Description": "ドマ式麻雀の卓を読み取り、最善の打牌と鳴きを計算して推奨表示します。自動打牌にも対応。kuchris氏のMahjongXIVをもとにした日本語対応版で、元のプラグインとは別プラグインとして共存できます。コマンドは /mjjp です。\n\nJapanese edition of MahjongXIV: reads Doman Mahjong, suggests the best discard and call, and can play for you.",
     "Punchline": "ドマ式麻雀の打牌推奨・自動打牌（日本語対応）",
     "ApplicableVersion": "any",
@@ -20,12 +20,12 @@
       "utility"
     ],
     "RepoUrl": "https://github.com/MMMMXIV/MahjongXIVJP",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.1.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.1.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.1.zip",
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.2.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.2.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/dist/MahjongXIVJP-0.5.4.2.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": 1795611285,
+    "LastUpdate": 1795612418,
     "IconUrl": "https://raw.githubusercontent.com/MMMMXIV/MahjongXIVJP/main/MahjongXiv/Images/Icon.png",
     "Changelog": "日本語コンテンツファインダーの「参加」ボタンを認識できず自動再申請が失敗する不具合を修正。完全一致・候補一意の判定で「参加辞退」等の誤操作を防止。打牌・リーチの安全対策を維持。"
   }
